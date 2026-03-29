@@ -1,136 +1,174 @@
 @echo off
-rem ============================================================
-rem launch.bat — Запуск Kubernetes-кластера (Stage 1)
-rem ============================================================
+rem ============================================================================
+rem launch.bat - Полный учебный запуск stage1 одной командой
+rem ============================================================================
 rem
 rem ЧТО ДЕЛАЕТ ЭТОТ ФАЙЛ:
-rem   1. Проверяет, установлены ли Vagrant и VirtualBox
-rem   2. Проверяет, что ты запустил его в нужной папке
-rem   3. Запускает vagrant up (создаёт и настраивает 3 ВМ)
-rem   4. После успешного запуска показывает статус нод
+rem   1. Проверяет, что Vagrant и VirtualBox установлены
+rem   2. Проверяет, что файл запущен из папки stage1
+rem   3. Выполняет базовый bootstrap через vagrant up
+rem   4. Выполняет post-bootstrap сценарий:
+rem      - проверка регистрации 3 нод
+rem      - Calico
+rem      - smoke-test
+rem      - Dashboard
+rem   5. В конце показывает, что именно открыть и что именно проверить
 rem
-rem КАК ЗАПУСТИТЬ:
-rem   Дважды кликни по launch.bat в папке stage1\
-rem   ИЛИ открой PowerShell в папке stage1\ и набери: .\launch.bat
+rem ЗАЧЕМ ЭТО НУЖНО:
+rem   Ученик может запустить весь stage1 одной командой и просто наблюдать,
+rem   не вспоминая каждый раз вручную всю последовательность шагов.
 rem
-rem СКОЛЬКО ЖДАТЬ:
-rem   Первый раз: 15–30 минут (скачивается образ Ubuntu ~1.5 ГБ + K8s)
-rem   Повторный:  5–10 минут (образ уже есть)
+rem КАК ЗАПУСКАТЬ:
+rem   1. Двойной клик по launch.bat
+rem   2. Или из PowerShell:
+rem      .\launch.bat
 rem
-rem ЕСЛИ УПАЛО С ОШИБКОЙ:
-rem   Смотри docs\troubleshooting.md
-rem   Или набери: vagrant ssh k8s-master -- journalctl -u kubelet -n 50
-rem ============================================================
+rem ВАЖНО:
+rem   launch.bat не заменяет учебные материалы, а упрощает повторяемый запуск.
+rem   Логика проекта остаётся той же:
+rem   сначала кластер, потом Calico, потом smoke-test, потом Dashboard.
+rem ============================================================================
 
 chcp 65001 >nul 2>&1
 setlocal EnableDelayedExpansion
 
 echo.
-echo  ╔══════════════════════════════════════════════════════╗
-echo  ║     Kubernetes Cluster Stage 1 — Запуск             ║
-echo  ╚══════════════════════════════════════════════════════╝
+echo ============================================================
+echo   Stage 1: полный запуск учебного Kubernetes-кластера
+echo ============================================================
 echo.
 
-rem --- ПРОВЕРКА 1: Vagrant установлен? ---
+rem --- Проверка 1: Vagrant установлен? ---
 where vagrant >nul 2>&1
 if errorlevel 1 (
-    echo  [ОШИБКА] Vagrant не найден!
+    echo [ОШИБКА] Vagrant не найден.
+    echo Установи Vagrant и повтори запуск:
+    echo https://developer.hashicorp.com/vagrant/downloads
     echo.
-    echo  Скачай и установи Vagrant:
-    echo    https://developer.hashicorp.com/vagrant/downloads
-    echo.
-    echo  После установки ПЕРЕЗАПУСТИ это окно командной строки.
     pause
     exit /b 1
 )
-echo  [OK] Vagrant найден:
+
+echo [OK] Найден Vagrant:
 vagrant --version
 echo.
 
-rem --- ПРОВЕРКА 2: VirtualBox установлен? ---
+rem --- Проверка 2: VirtualBox установлен? ---
 where VBoxManage >nul 2>&1
 if errorlevel 1 (
-    rem Попробуем стандартный путь установки
     if exist "C:\Program Files\Oracle\VirtualBox\VBoxManage.exe" (
         set PATH=%PATH%;C:\Program Files\Oracle\VirtualBox
     ) else (
-        echo  [ОШИБКА] VirtualBox не найден!
-        echo.
-        echo  Скачай и установи VirtualBox 7.x:
-        echo    https://www.virtualbox.org/wiki/Downloads
+        echo [ОШИБКА] VirtualBox не найден.
+        echo Установи VirtualBox и повтори запуск:
+        echo https://www.virtualbox.org/wiki/Downloads
         echo.
         pause
         exit /b 1
     )
 )
-echo  [OK] VirtualBox найден:
+
+echo [OK] Найден VirtualBox:
 VBoxManage --version
 echo.
 
-rem --- ПРОВЕРКА 3: Мы в правильной папке? ---
+rem --- Проверка 3: мы в правильной папке? ---
 if not exist "Vagrantfile" (
-    echo  [ОШИБКА] Vagrantfile не найден в текущей папке!
-    echo.
-    echo  Убедись, что launch.bat запускается из папки stage1\
-    echo  Текущая папка: %CD%
+    echo [ОШИБКА] В текущей папке не найден Vagrantfile.
+    echo Текущая папка: %CD%
+    echo Запускай launch.bat именно из stage1.
     echo.
     pause
     exit /b 1
 )
-echo  [OK] Vagrantfile найден в %CD%
+
+if not exist "scripts\run-post-bootstrap.ps1" (
+    echo [ОШИБКА] Не найден scripts\run-post-bootstrap.ps1
+    echo Сценарий stage1 выглядит неполным.
+    echo.
+    pause
+    exit /b 1
+)
+
+echo [OK] Найдены Vagrantfile и post-bootstrap сценарий
 echo.
 
-rem --- ЗАПУСК КЛАСТЕРА ---
-echo  Запускаем vagrant up...
-echo  (Ctrl+C для отмены в любой момент)
+rem --- Шаг 1: базовый bootstrap кластера ---
+echo ------------------------------------------------------------
+echo [ШАГ 1/2] Выполняем vagrant up
+echo ------------------------------------------------------------
 echo.
-echo ════════════════════════════════════════════════════════
+echo Это поднимет 3 ВМ и выполнит базовую сборку кластера.
+echo Первый запуск может занять 15-30 минут.
 echo.
 
 vagrant up
-
-rem --- ПРОВЕРКА РЕЗУЛЬТАТА ---
 if errorlevel 1 (
     echo.
-    echo ════════════════════════════════════════════════════════
-    echo  [ОШИБКА] vagrant up завершился с ошибкой.
+    echo [ОШИБКА] Команда vagrant up завершилась с ошибкой.
     echo.
-    echo  Попробуй:
-    echo    1. vagrant status          — проверь состояние ВМ
-    echo    2. vagrant destroy -f      — удали все ВМ
-    echo    3. .\launch.bat            — запусти снова
+    echo Что можно сделать дальше:
+    echo   1. vagrant status
+    echo   2. vagrant destroy -f
+    echo   3. .\launch.bat
     echo.
-    echo  Подробная диагностика: docs\troubleshooting.md
-    echo ════════════════════════════════════════════════════════
+    echo Подсказки смотри в docs\troubleshooting.md
+    echo.
     pause
     exit /b 1
 )
 
 echo.
-echo ════════════════════════════════════════════════════════
-echo  Кластер запущен! Проверяем ноды...
-echo ════════════════════════════════════════════════════════
+echo ------------------------------------------------------------
+echo [ШАГ 2/2] Выполняем post-bootstrap финализацию
+echo ------------------------------------------------------------
+echo.
+echo Сейчас будут:
+echo   - проверка 3 нод
+echo   - Calico
+echo   - smoke-test
+echo   - Dashboard
 echo.
 
-rem --- СТАТУС НОД ---
-vagrant ssh k8s-master --command "kubectl get nodes -o wide"
+powershell.exe -ExecutionPolicy Bypass -File ".\scripts\run-post-bootstrap.ps1"
+if errorlevel 1 (
+    echo.
+    echo [ОШИБКА] Post-bootstrap сценарий завершился с ошибкой.
+    echo.
+    echo Кластер мог подняться частично, поэтому сначала проверь:
+    echo   vagrant status
+    echo   vagrant ssh k8s-master -c "sudo KUBECONFIG=/etc/kubernetes/admin.conf kubectl get nodes -o wide"
+    echo.
+    echo Подсказки смотри в docs\troubleshooting.md
+    echo.
+    pause
+    exit /b 1
+)
+
+echo.
+echo ------------------------------------------------------------
+echo Финальная краткая проверка
+echo ------------------------------------------------------------
+echo.
+vagrant ssh k8s-master -c "sudo KUBECONFIG=/etc/kubernetes/admin.conf kubectl get nodes -o wide"
 echo.
 
-rem --- ИТОГ ---
-echo ════════════════════════════════════════════════════════
+echo ============================================================
+echo   Stage 1 успешно завершен
+echo ============================================================
 echo.
-echo  Кластер готов!
+echo Что делать дальше:
+echo   1. Открой в браузере: https://localhost:30443
+echo   2. Если браузер предупредит о сертификате - это нормально
+echo   3. Возьми токен из вывода выше
+echo   4. В Dashboard проверь:
+echo      - 3 ноды в разделе Nodes
+echo      - namespace smoke-tests
+echo      - nginx-smoke и nginx-smoke-check
 echo.
-echo  Полезные команды:
-echo    vagrant ssh k8s-master        — войти на мастер
-echo    vagrant status                — проверить ВМ
-echo    vagrant halt                  — выключить ВМ (сохраняет данные)
-echo    vagrant destroy -f            — удалить всё
-echo.
-echo  Kubernetes Dashboard:
-echo    https://localhost:30443
-echo    (токен выведен в логах выше — ищи строку "ТОКЕН ДЛЯ ВХОДА")
-echo.
-echo ════════════════════════════════════════════════════════
+echo Полезные команды:
+echo   vagrant status
+echo   vagrant ssh k8s-master
+echo   vagrant destroy -f
 echo.
 pause

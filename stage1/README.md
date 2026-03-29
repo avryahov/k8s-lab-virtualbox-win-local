@@ -1,188 +1,172 @@
-# Kubernetes Cluster — Stage 1 (Учебный)
+# Kubernetes Cluster — Stage 1 (учебный сценарий)
 
-> **Это Stage 1.** Всё хардкодом — IP-адреса, имена, версии прямо в файлах.
-> Никаких паролей SSH, никаких переменных. Цель: запустить кластер и понять что происходит.
->
-> Stage 2 (с SSH-ключами, NSIS-визардом, переменными) — в папке `../stage2/`.
-
----
-
-## Что ты получишь
-
-После запуска у тебя будет **настоящий кластер Kubernetes** из трёх виртуальных машин:
-
-```
-Твой компьютер (Windows)
-│
-├── VirtualBox
-│   ├── k8s-master   192.168.56.10  ← управляет кластером
-│   ├── k8s-worker1  192.168.56.11  ← запускает твои приложения
-│   └── k8s-worker2  192.168.56.12  ← запускает твои приложения
-│
-└── Порты на localhost:
-    ├── :2232  → SSH на мастер
-    ├── :6443  → Kubernetes API
-    └── :30443 → Веб-интерфейс Dashboard
-```
+> **Это Stage 1.**
+> Здесь всё намеренно максимально прямолинейно: фиксированные имена нод, фиксированные IP, подробные комментарии и пошаговый сценарий.
+> Цель Stage 1 — не «спрятать сложность», а показать ученику, из каких шагов реально собирается рабочий Kubernetes-кластер.
 
 ---
 
-## Требования
+## Что получится в конце
 
-| Что нужно | Минимум | Где скачать |
-|-----------|---------|-------------|
-| Windows 10/11 | 64-bit | — |
-| VirtualBox | 7.0+ | virtualbox.org/wiki/Downloads |
-| Vagrant | 2.4+ | developer.hashicorp.com/vagrant/downloads |
-| RAM компьютера | 8 ГБ | — |
-| Место на диске | 20 ГБ | — |
+После запуска у тебя будет локальный кластер из трёх виртуальных машин:
 
-**Проверь, что установлено.** Открой PowerShell и набери:
-```powershell
-vagrant --version     # должно быть: Vagrant 2.x.x
-VBoxManage --version  # должно быть: 7.x.x
-```
+- `k8s-master` — управляющая нода;
+- `k8s-worker1` — рабочая нода;
+- `k8s-worker2` — рабочая нода.
+
+После финальной post-bootstrap настройки ты увидишь:
+
+- 3 ноды в состоянии `Ready`;
+- Pod-сеть Calico;
+- тестовый namespace `smoke-tests`;
+- приложение `nginx-smoke`;
+- веб-интерфейс Kubernetes Dashboard.
 
 ---
 
-## Запуск (3 шага)
+## Самый короткий ручной запуск
 
-### Шаг 1 — Открой PowerShell в этой папке
+Открой PowerShell именно в папке `stage1` и выполни:
 
-Правой кнопкой на папке `stage1` → «Открыть в терминале»
-
-Или в PowerShell вручную:
-```powershell
-cd C:\путь\до\проекта\stage1
-```
-
-### Шаг 2 — Запусти кластер
-
-Вариант А — двойной клик на `launch.bat`
-
-Вариант Б — в PowerShell:
 ```powershell
 vagrant up
+powershell -ExecutionPolicy Bypass -File .\scripts\run-post-bootstrap.ps1
 ```
 
-**Первый запуск займёт 15–30 минут.** Vagrant скачивает образ Ubuntu (~1.5 ГБ),
-потом устанавливает Kubernetes на все три машины. Это нормально — выпей чай.
-
-### Шаг 3 — Проверь что всё работает
+Или просто запусти:
 
 ```powershell
-vagrant ssh k8s-master -- kubectl get nodes -o wide
+.\launch.bat
 ```
 
-Должно появиться что-то вроде:
-```
-NAME          STATUS   ROLES           AGE   VERSION   INTERNAL-IP
-k8s-master    Ready    control-plane   5m    v1.34.6   192.168.56.10
-k8s-worker1   Ready    <none>          3m    v1.34.6   192.168.56.11
-k8s-worker2   Ready    <none>          3m    v1.34.6   192.168.56.12
-```
+`launch.bat` — это удобная учебная обёртка, которая выполнит те же шаги автоматически.
 
-Все три ноды `Ready` — кластер работает!
+После этого:
+
+1. открой `https://localhost:30443`;
+2. подтверди переход на страницу с самоподписанным сертификатом;
+3. вставь токен, который вывел `run-post-bootstrap.ps1`;
+4. в Dashboard проверь:
+   - раздел `Nodes` — там должны быть 3 ноды;
+   - namespace `smoke-tests` — там должен быть `Deployment`, `Service` и завершившийся `Job`.
 
 ---
 
-## Веб-интерфейс (Dashboard)
+## Что делает каждая команда
 
-1. Открой браузер: **https://localhost:30443**
-2. Браузер скажет «Небезопасное соединение» — это нормально для нашей лабораторки. Нажми «Дополнительно» → «Перейти на сайт»
-3. Вставь токен из лога (`vagrant up` вывел его в конце — ищи строку `ТОКЕН ДЛЯ ВХОДА`)
-4. Если токен не сохранился — получи новый:
-   ```powershell
-   vagrant ssh k8s-master -- kubectl -n kubernetes-dashboard create token admin-user --duration=24h
-   ```
+### `vagrant up`
 
----
+Эта команда:
 
-## Управление кластером
+1. создаёт 3 виртуальные машины в VirtualBox;
+2. подготавливает на них Linux, containerd, kubeadm, kubelet и kubectl;
+3. выполняет `kubeadm init` на master;
+4. присоединяет worker-ноды через `kubeadm join`.
 
-```powershell
-vagrant status              # посмотреть состояние ВМ (running/poweroff)
-vagrant ssh k8s-master      # зайти на мастер (терминал Linux внутри ВМ)
-vagrant halt                # выключить ВМ (данные сохраняются)
-vagrant up                  # включить обратно
-vagrant reload              # перезагрузить ВМ
-vagrant destroy -f          # УДАЛИТЬ всё (ВМ и данные кластера)
-```
+Это базовый bootstrap кластера.
+После него кластер уже существует, но учебный сценарий ещё не завершён.
 
----
+### `run-post-bootstrap.ps1`
 
-## Что потыкать внутри кластера
+Эта команда завершает сценарий в правильном учебном порядке:
 
-Зайди на мастер: `vagrant ssh k8s-master`
+1. проверяет, что все 3 ноды зарегистрировались;
+2. доводит сетевую часть и Calico;
+3. применяет smoke-тест из корня проекта;
+4. ждёт успешного завершения smoke-проверки;
+5. только потом устанавливает Dashboard.
 
-```bash
-# Смотреть ноды
-kubectl get nodes -o wide
-
-# Смотреть все Pod-ы
-kubectl get pods --all-namespaces
-
-# Запустить тестовое приложение
-kubectl create deployment hello --image=nginx --replicas=3
-kubectl get pods
-
-# Посмотреть что происходит в реальном времени
-kubectl get pods -w
-
-# Удалить тестовое приложение
-kubectl delete deployment hello
-```
+Именно поэтому Dashboard не ставится в начале:
+сначала мы должны доказать, что работает сам кластер, а уже потом добавлять удобный веб-интерфейс.
 
 ---
 
-## Часто задаваемые вопросы
+## Ручная проверка без Dashboard
 
-**Q: Ноды не переходят в Ready, висят в NotReady**
-A: Calico может стартовать 3–5 минут. Подожди и проверь снова:
+Если хочешь быстро проверить кластер в консоли:
+
 ```powershell
-vagrant ssh k8s-master -- kubectl get pods -n calico-system
+vagrant ssh k8s-master -c "sudo KUBECONFIG=/etc/kubernetes/admin.conf kubectl get nodes -o wide"
+vagrant ssh k8s-master -c "sudo KUBECONFIG=/etc/kubernetes/admin.conf kubectl get pods -A -o wide"
 ```
 
-**Q: vagrant up падает с ошибкой про порт**
-A: Какой-то порт (2232, 2242, 2252, 6443, 30443) уже занят. Найди кто занимает:
+Что должно быть:
+
+- `k8s-master`, `k8s-worker1`, `k8s-worker2` — `Ready`;
+- `calico-system` — Pod-ы `Running`;
+- `smoke-tests` — `nginx-smoke` в `Running`, `nginx-smoke-check` в `Completed`;
+- `kubernetes-dashboard` — Pod-ы `Running`.
+
+---
+
+## Где смотреть в браузере
+
+Dashboard доступен по адресу:
+
+`https://localhost:30443`
+
+Важно:
+
+- используется `HTTPS`, не `HTTP`;
+- браузер предупредит о самоподписанном сертификате — для учебной локальной лаборатории это нормально;
+- токен входа выводится в конце `run-post-bootstrap.ps1`.
+
+Если токен потерялся, его можно получить заново:
+
 ```powershell
-netstat -ano | findstr :2232
+vagrant ssh k8s-master -c "sudo KUBECONFIG=/etc/kubernetes/admin.conf kubectl -n kubernetes-dashboard create token admin-user --duration=24h"
 ```
 
-**Q: Мало RAM, кластер тормозит**
-A: В `Vagrantfile` уменьши `vb.memory = 1024` (минимум для воркеров) и `vb.memory = 2048` для мастера.
+---
 
-**Q: Как выключить и не потерять данные?**
-A: `vagrant halt` — выключает ВМ, данные на диске сохраняются. `vagrant up` — включает обратно.
+## Полный сброс и повторный старт
 
-**Q: Как сбросить всё и начать заново?**
-A:
+Если нужно удалить текущий кластер и начать заново:
+
 ```powershell
 vagrant destroy -f
 vagrant up
+powershell -ExecutionPolicy Bypass -File .\scripts\run-post-bootstrap.ps1
 ```
 
+После `destroy` сценарий теперь чистит:
+
+- виртуальные машины текущего `stage1`;
+- `join-command.sh`;
+- локальный runtime-каталог `.vagrant`;
+- токен экземпляра кластера;
+- зафиксированный пул host-портов;
+- временные Vagrant-ключи и служебные хвосты.
+
+То есть следующий запуск идёт уже без мусора от предыдущего стенда.
+
 ---
 
-## Что изучить дальше
+## Частые вопросы
 
-- `../docs/technologies.md` — как устроен Kubernetes, containerd, Calico
-- `../docs/references.md` — книги и ссылки для углублённого изучения
-- `../stage2/` — Stage 2 с SSH-ключами и NSIS-визардом
+### Почему ноды могут не сразу стать `Ready`?
+
+Потому что после присоединения worker-нод Kubernetes ещё ждёт готовности Pod-сети.
+Calico может стартовать не мгновенно, поэтому в post-bootstrap сценарии есть ожидания и повторные проверки.
+
+### Почему Dashboard ставится не сразу?
+
+Потому что Dashboard — это удобство, а не основа жизнеспособности кластера.
+Учебно и технически правильнее сначала проверить сам кластер и простое приложение.
+
+### Почему в smoke-тесте именно `nginx`?
+
+Потому что это простой и понятный пример:
+
+- `Deployment` показывает, что Pod-ы запускаются;
+- `Service` показывает, что сервисная сеть работает;
+- `Job` проверяет доступность сервиса изнутри кластера.
 
 ---
 
-## Конфигурация кластера (для справки)
+## Что читать дальше
 
-| Параметр | Значение |
-|----------|---------|
-| Образ ОС | Ubuntu 24.04 LTS (bento/ubuntu-24.04) |
-| Kubernetes | v1.34.6 |
-| Container Runtime | containerd 1.7.x |
-| CNI | Calico v3.28.0 (VXLAN) |
-| Pod CIDR | 10.244.0.0/16 |
-| Service CIDR | 10.96.0.0/12 |
-| Master IP | 192.168.56.10 |
-| Worker 1 IP | 192.168.56.11 |
-| Worker 2 IP | 192.168.56.12 |
-| Пользователь | vagrant / vagrant |
+- [Быстрый старт](K:\repositories\git\ipr\crm\docs\quickstart.md)
+- [Архитектура](K:\repositories\git\ipr\crm\docs\architecture.md)
+- [Устранение неисправностей](K:\repositories\git\ipr\crm\docs\troubleshooting.md)
+- [Список литературы и источников](K:\repositories\git\ipr\crm\docs\references.md)
