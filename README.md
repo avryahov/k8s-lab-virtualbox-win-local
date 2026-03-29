@@ -10,6 +10,176 @@
 
 ---
 
+## Честная пометка о происхождении и проверке
+
+На текущем этапе значительная часть структуры, сценариев, комментариев и документации в этом репозитории была подготовлена с помощью нейросетевых ассистентов.
+
+Это важно фиксировать прямо и без украшений:
+
+- наличие рабочего сценария ещё не означает полноценную реальную эксплуатационную зрелость;
+- локальная техническая проверка и ручной smoke-тест уже были выполнены;
+- полноценное чек-ревью и верификация от независимых реальных пользователей пока не получены;
+- поэтому любые учебные и инженерные выводы пока нужно считать предварительно подтверждёнными, а не окончательно доказанными практикой.
+
+---
+
+## Система статусов артефактов
+
+### Зрелость
+
+- `BACKLOG`
+- `DRAFT`
+- `IN_PROGRESS`
+- `REVIEW`
+- `VERIFIED`
+- `PRACTICED`
+
+### Происхождение
+
+- `AI_ASSISTED`
+- `HUMAN_AUTHORED`
+- `HYBRID`
+
+### Проверка
+
+- `SELF_CHECKED`
+- `PEER_REVIEWED`
+- `USER_VALIDATED`
+- `FIELD_PROVEN`
+
+Минимальная честная карточка для артефакта:
+
+```text
+Maturity: VERIFIED
+Origin: HYBRID
+Verification: SELF_CHECKED
+Real-user validation: NO
+```
+
+Для текущего `stage1` честная формулировка сейчас такая:
+
+```text
+Maturity: VERIFIED
+Origin: HYBRID
+Verification: SELF_CHECKED
+Real-user validation: NO
+```
+
+---
+
+## C1: Контекст проекта
+
+```mermaid
+flowchart LR
+    student["Ученик / пользователь"]
+    host["Windows 11 Host"]
+    vagrant["Vagrant"]
+    vbox["VirtualBox"]
+    stage1["Stage 1\nУчебный кластер"]
+    stage2["Stage 2\nАвтоматизация и упаковка"]
+    docs["docs/\nГайды, архитектура, troubleshooting"]
+    dashboard["Kubernetes Dashboard"]
+    kubectl["Windows kubectl"]
+
+    student --> host
+    host --> vagrant
+    vagrant --> vbox
+    vbox --> stage1
+    vbox --> stage2
+    stage1 --> dashboard
+    host --> kubectl
+    kubectl --> stage1
+    student --> docs
+    docs --> stage1
+    docs --> stage2
+```
+
+Эта диаграмма показывает проект целиком:
+
+- пользователь работает на Windows-хосте;
+- Vagrant управляет VirtualBox;
+- в VirtualBox поднимаются сценарии `stage1` и позже `stage2`;
+- документация объясняет, как пользоваться и как проверять результат;
+- `kubectl` и Dashboard дают два разных способа видеть один и тот же кластер.
+
+---
+
+## C2: Контейнеры внутри репозитория
+
+```mermaid
+flowchart TB
+    repo["Репозиторий k8s-vagrant-lab"]
+    rootReadme["README.md\nОбщий обзор и статусы"]
+    status["STATUS.md\nТекущее состояние работ"]
+    stage1["stage1/\nУчебный сценарий"]
+    stage2["stage2/\nРасширенный сценарий"]
+    smoke["smoke-tests/\nТестовые манифесты"]
+    docs["docs/\nАрхитектура, quickstart, troubleshooting, thesaurus"]
+
+    repo --> rootReadme
+    repo --> status
+    repo --> stage1
+    repo --> stage2
+    repo --> smoke
+    repo --> docs
+    stage1 --> smoke
+    docs --> stage1
+    docs --> stage2
+```
+
+---
+
+## Flow: Учебный путь пользователя
+
+```mermaid
+flowchart TD
+    start["Старт работы с проектом"]
+    choose["Выбор сценария"]
+    s1["Stage 1"]
+    s2["Stage 2"]
+    up["vagrant up / launch.bat"]
+    post["run-post-bootstrap.ps1"]
+    smoke["Smoke-тест"]
+    dash["Dashboard"]
+    hostkubectl["Windows kubectl"]
+    docs["Чтение docs/"]
+
+    start --> choose
+    choose --> s1
+    choose --> s2
+    s1 --> up
+    up --> post
+    post --> smoke
+    smoke --> dash
+    dash --> hostkubectl
+    s1 --> docs
+    s2 --> docs
+```
+
+---
+
+## Timeline: Дорожная карта работ
+
+```mermaid
+timeline
+    title Дорожная карта проекта
+    section Stage 1
+      Подъём master и worker : завершено
+      Calico и smoke-тест : завершено
+      Dashboard и Windows kubectl : завершено
+      Учебная документация : в развитии
+    section Stage 2
+      Перенос практик stage1 : backlog
+      Проверка .env и installer-сценариев : backlog
+      Расширенная валидация : backlog
+    section Future
+      Золотой образ : backlog
+      Packer-пайплайн : backlog
+      Перенос практик в другие проекты : backlog
+```
+
+---
+
 ## С чего начинать
 
 Если цель — быстро поднять рабочий кластер, понять его шаги и проверить его из браузера и из терминала Windows, начинать нужно со `stage1`.
@@ -50,30 +220,6 @@ powershell -ExecutionPolicy Bypass -File .\scripts\run-post-bootstrap.ps1
 
 ---
 
-## Что поднимается в Stage 1
-
-Учебный `stage1` создаёт три ноды:
-
-- `k8s-master`
-- `k8s-worker1`
-- `k8s-worker2`
-
-Сетевые адреса:
-
-- `192.168.56.10` — master
-- `192.168.56.11` — worker1
-- `192.168.56.12` — worker2
-
-Основные проброшенные порты:
-
-- `2232` — SSH master
-- `2242` — SSH worker1
-- `2252` — SSH worker2
-- `6443` — Kubernetes API
-- `30443` — Kubernetes Dashboard
-
----
-
 ## Проверка через браузер
 
 Открой:
@@ -110,8 +256,6 @@ cd K:\repositories\git\ipr\crm\stage1
 . .\scripts\use-stage1-kubectl.ps1
 ```
 
-Точка и пробел перед путём означают `dot-sourcing`: скрипт выполняется в текущей PowerShell-сессии и оставляет переменную `KUBECONFIG` доступной после завершения.
-
 ### Что можно проверить из Windows
 
 ```powershell
@@ -122,31 +266,6 @@ kubectl get all -n smoke-tests -o wide
 kubectl get svc -n kubernetes-dashboard
 kubectl cluster-info
 ```
-
-Если эти команды работают из Windows PowerShell, значит host-side доступ к `stage1`-кластеру настроен правильно.
-
----
-
-## Проверка smoke-проекта из Windows
-
-```powershell
-kubectl get all -n smoke-tests -o wide
-kubectl get deployment nginx-smoke -n smoke-tests
-kubectl get pods -n smoke-tests -o wide
-kubectl get svc -n smoke-tests
-kubectl get job nginx-smoke-check -n smoke-tests
-kubectl logs job/nginx-smoke-check -n smoke-tests
-kubectl describe deployment nginx-smoke -n smoke-tests
-kubectl describe svc nginx-smoke -n smoke-tests
-kubectl get endpoints nginx-smoke -n smoke-tests
-```
-
-Как читать результат:
-
-- `nginx-smoke` должен быть `3/3`;
-- `nginx-smoke-check` должен быть `Complete`;
-- сервис `nginx-smoke` должен иметь реальные `Endpoints`;
-- ранние ошибки `curl` в логах `Job` допустимы, если сам `Job` уже завершился успешно.
 
 ---
 
@@ -167,19 +286,12 @@ Remove-Item -Recurse -Force .\.vagrant -ErrorAction SilentlyContinue
 Remove-Item -Force .\join-command.sh -ErrorAction SilentlyContinue
 ```
 
-После `destroy` сценарий должен очищать:
-
-- локальный `.vagrant`;
-- `join-command.sh`;
-- токен экземпляра кластера;
-- пул host-портов;
-- временные runtime-хвосты текущего запуска.
-
 ---
 
 ## Документация
 
 - [Stage 1 README](K:\repositories\git\ipr\crm\stage1\README.md)
+- [Stage 2 README](K:\repositories\git\ipr\crm\stage2\README.md)
 - [Быстрый старт](K:\repositories\git\ipr\crm\docs\quickstart.md)
 - [Архитектура](K:\repositories\git\ipr\crm\docs\architecture.md)
 - [Устранение неисправностей](K:\repositories\git\ipr\crm\docs\troubleshooting.md)
