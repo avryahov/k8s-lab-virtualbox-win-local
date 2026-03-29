@@ -140,6 +140,12 @@ echo   2. namespace smoke-tests
 echo   3. nginx-smoke deployment
 echo   4. nginx-smoke-check job
 echo.
+echo Host kubectl is also prepared:
+echo   set KUBECONFIG=K:\repositories\git\ipr\crm\stage1\kubeconfig-stage1.yaml
+echo   PowerShell: . .\scripts\use-stage1-kubectl.ps1
+echo   kubectl get nodes -o wide
+echo   kubectl get pods -A -o wide
+echo.
 echo Useful commands:
 echo   vagrant status
 echo   vagrant ssh k8s-master

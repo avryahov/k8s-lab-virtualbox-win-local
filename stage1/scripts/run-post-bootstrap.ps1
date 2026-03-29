@@ -31,9 +31,20 @@ $ErrorActionPreference = "Stop"
 $stage1Dir = Split-Path -Parent $PSScriptRoot
 $repoRoot = Split-Path -Parent $stage1Dir
 $smokeManifest = Join-Path $repoRoot "smoke-tests\nginx-smoke.yaml"
+$hostKubeconfigScript = Join-Path $PSScriptRoot "export-host-kubeconfig.ps1"
+$hostKubeconfigPath = Join-Path $stage1Dir "kubeconfig-stage1.yaml"
+$hostKubectlHelper = Join-Path $PSScriptRoot "use-stage1-kubectl.ps1"
 
 if (-not (Test-Path $smokeManifest)) {
     throw "Smoke manifest not found: $smokeManifest"
+}
+
+if (-not (Test-Path $hostKubeconfigScript)) {
+    throw "Host kubeconfig export script not found: $hostKubeconfigScript"
+}
+
+if (-not (Test-Path $hostKubectlHelper)) {
+    throw "Host kubectl helper script not found: $hostKubectlHelper"
 }
 
 Push-Location $stage1Dir
@@ -109,5 +120,13 @@ Write-Host ">>> [post-bootstrap] Final smoke namespace summary..."
 
 Write-Host ">>> [post-bootstrap] Smoke-test passed. Installing Dashboard as the final stage..."
 & vagrant ssh k8s-master -c "sudo bash /vagrant/scripts/install-dashboard.sh"
+
+Write-Host ">>> [post-bootstrap] Exporting kubeconfig for Windows host kubectl..."
+& powershell.exe -ExecutionPolicy Bypass -File $hostKubeconfigScript -OutputPath $hostKubeconfigPath
+
+Write-Host ">>> [post-bootstrap] Windows host can now use kubectl directly after:"
+Write-Host ('$env:KUBECONFIG = "{0}"' -f $hostKubeconfigPath)
+Write-Host ">>> [post-bootstrap] Or run this helper in the current PowerShell session:"
+Write-Host ". .\scripts\use-stage1-kubectl.ps1"
 
 Pop-Location
