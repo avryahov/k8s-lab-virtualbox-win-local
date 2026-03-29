@@ -1,4 +1,121 @@
 # =============================================================================
+# Stage 1 использует стабильные Vagrant-имена машин (k8s-master, k8s-worker1,
+# k8s-worker2), чтобы учебные команды оставались простыми.
+#
+# Но VirtualBox-имена самих ВМ должны быть уникальными для каждого нового
+# кластера, иначе можно:
+#   1. столкнуться с orphan-ВМ после неудачного запуска;
+#   2. случайно задеть другой локальный кластер пользователя;
+#   3. получить конфликт имён при следующем vagrant up.
+# =============================================================================
+
+require "fileutils"
+require "json"
+require "securerandom"
+require "socket"
+
+def stage1_machine_state_present?(base_dir)
+  machines_dir = File.join(base_dir, ".vagrant", "machines")
+  return false unless Dir.exist?(machines_dir)
+
+  %w[k8s-master k8s-worker1 k8s-worker2].any? do |machine_name|
+    Dir.exist?(File.join(machines_dir, machine_name))
+  end
+end
+
+def host_port_free?(port)
+  # Проверяем host-порт пробным bind на localhost.
+  # Если bind успешен, порт сейчас свободен и его можно закреплять за кластером.
+  probe = TCPServer.new("127.0.0.1", port)
+  probe.close
+  true
+rescue Errno::EADDRINUSE, Errno::EACCES
+  false
+end
+
+def allocate_host_port(preferred_port, reserved_ports)
+  # Сначала пытаемся оставить привычный номер, который ожидает увидеть ученик в методичке.
+  return preferred_port if host_port_free?(preferred_port) && !reserved_ports.include?(preferred_port)
+
+  # Если точный номер занят, ищем ближайший свободный выше по диапазону.
+  # Важно: делаем это заранее для всего набора портов, а не позволяем Vagrant менять их по одному втихую.
+  ((preferred_port + 1)..(preferred_port + 200)).each do |candidate_port|
+    next if reserved_ports.include?(candidate_port)
+    return candidate_port if host_port_free?(candidate_port)
+  end
+
+  raise "No free host port found near #{preferred_port}"
+end
+
+def load_or_create_stage1_host_port_pool(base_dir)
+  # Файл с портами лежит в .vagrant, потому что это локальное runtime-состояние текущего учебного стенда.
+  pool_dir = File.join(base_dir, ".vagrant")
+  pool_file = File.join(pool_dir, "stage1-host-port-pool.json")
+  FileUtils.mkdir_p(pool_dir)
+
+  # Если stage1 уже создан и файл пула есть, повторно используем его.
+  # Так reload/provision не меняют host-порты и команды ученика остаются рабочими.
+  if File.exist?(pool_file) && stage1_machine_state_present?(base_dir)
+    existing_pool = JSON.parse(File.read(pool_file))
+    required_keys = %w[master_ssh master_api master_dashboard worker1_ssh worker2_ssh]
+    if required_keys.all? { |pool_key| existing_pool.key?(pool_key) }
+      return existing_pool.transform_values(&:to_i)
+    end
+  end
+
+  # Для нового запуска сразу подбираем весь пул host-портов одним проходом.
+  # Это позволяет заранее знать, какие именно значения достанутся всем трём нодам.
+  requested_ports = {
+    "master_ssh" => 2232,
+    "master_api" => 6443,
+    "master_dashboard" => 30443,
+    "worker1_ssh" => 2242,
+    "worker2_ssh" => 2252
+  }
+  reserved_ports = []
+  selected_pool = {}
+
+  requested_ports.each do |port_label, preferred_port|
+    selected_port = allocate_host_port(preferred_port, reserved_ports)
+    selected_pool[port_label] = selected_port
+    reserved_ports << selected_port
+  end
+
+  File.write(pool_file, JSON.pretty_generate(selected_pool))
+  selected_pool
+end
+
+def load_or_create_stage1_cluster_token(base_dir)
+  token_dir = File.join(base_dir, ".vagrant")
+  token_file = File.join(token_dir, "stage1-cluster-token")
+  FileUtils.mkdir_p(token_dir)
+
+  existing_token = File.exist?(token_file) ? File.read(token_file).strip : ""
+  if !existing_token.empty? && stage1_machine_state_present?(base_dir)
+    return existing_token
+  end
+
+  new_token = "#{Time.now.utc.strftime("%Y%m%d%H%M%S")}-#{SecureRandom.hex(2)}"
+  File.write(token_file, new_token)
+  new_token
+end
+
+def ps_quote(value)
+  "'#{value.gsub("'", "''")}'"
+end
+
+stage1_workspace_dir = __dir__
+stage1_cluster_token = load_or_create_stage1_cluster_token(stage1_workspace_dir)
+stage1_virtualbox_prefix = "k8s-stage1-#{stage1_cluster_token}"
+cleanup_tail_script = File.join(stage1_workspace_dir, "scripts", "cleanup-vbox-tail.ps1")
+stage1_host_port_pool = load_or_create_stage1_host_port_pool(stage1_workspace_dir)
+stage1_master_ssh_port = stage1_host_port_pool.fetch("master_ssh")
+stage1_master_api_port = stage1_host_port_pool.fetch("master_api")
+stage1_master_dashboard_port = stage1_host_port_pool.fetch("master_dashboard")
+stage1_worker1_ssh_port = stage1_host_port_pool.fetch("worker1_ssh")
+stage1_worker2_ssh_port = stage1_host_port_pool.fetch("worker2_ssh")
+
+# =============================================================================
 # Vagrantfile — Stage 1: «Прямой в лоб»
 # =============================================================================
 #
@@ -30,6 +147,9 @@
 # =============================================================================
 
 Vagrant.configure("2") do |config|
+  # Vagrant.configure("2") открывает главный блок конфигурации.
+  # Число "2" — это версия синтаксиса Vagrantfile, а не версия программы Vagrant.
+  # Почти все современные Vagrantfile используют именно этот формат.
 
   # ---------------------------------------------------------------------------
   # БАЗОВЫЙ ОБРАЗ (BOX)
@@ -43,34 +163,56 @@ Vagrant.configure("2") do |config|
   #
   # Официальный список образов: https://app.vagrantup.com/boxes/search
   config.vm.box = "bento/ubuntu-24.04"
+  # config.vm.box задаёт базовый образ для всех ВМ в этом файле.
+  # Vagrant скачает его один раз и потом будет клонировать для каждой ноды.
+  # В нашем случае это Ubuntu 24.04 LTS от Bento.
 
   # Таймаут загрузки ВМ в секундах (600 = 10 минут).
   # Первый запуск может быть долгим: ОС инициализируется, сеть настраивается.
   config.vm.boot_timeout = 600
+  # boot_timeout говорит Vagrant, сколько ждать, пока гость поднимется и
+  # станет доступен по SSH. Если время выйдет — Vagrant посчитает запуск
+  # неуспешным и завершит команду ошибкой.
 
   # Отключаем автоматическое обновление образа (ускоряет запуск).
   config.vm.box_check_update = false
+  # box_check_update = false полезен для учебной лаборатории:
+  # Vagrant не будет тратить время на проверку, не вышла ли новая версия box.
+  # Это делает запуск более воспроизводимым.
 
   # ---------------------------------------------------------------------------
   # ОБЩИЕ НАСТРОЙКИ VIRTUALBOX
   # ---------------------------------------------------------------------------
   # Эти параметры применяются ко всем ВМ, если не переопределены ниже.
   config.vm.provider "virtualbox" do |vb|
+    # Этот блок выполняется только для провайдера VirtualBox.
+    # Если бы использовали другой провайдер, например Hyper-V или VMware,
+    # настройки здесь не применились бы.
     # Количество виртуальных процессоров.
     # Kubernetes требует минимум 2 CPU на master-ноде.
     vb.cpus = 2
+    # vb.cpus = 2 означает: каждая новая ВМ получает два виртуальных ядра CPU.
+    # Ниже для конкретных машин можно переопределить это значение.
 
     # Оперативная память в мегабайтах (2048 = 2 ГБ).
     # Минимум для стабильного K8s: 2 ГБ на каждую ноду.
     # Если твой компьютер имеет 16 ГБ, можно поставить 4096 (4 ГБ).
     vb.memory = 2048
+    # vb.memory — объём RAM, который VirtualBox резервирует под гостевую машину.
+    # Для worker-нод этого обычно хватает, а для master ниже дадим больше.
 
     # Имя группы в интерфейсе VirtualBox (удобно для навигации).
-    vb.customize ["modifyvm", :id, "--groups", "/k8s-stage1"]
+    vb.customize ["modifyvm", :id, "--groups", "/k8s-stage1/#{stage1_cluster_token}"]
+    # vb.customize передаёт "сырую" команду прямо VirtualBox.
+    # :id — специальная подстановка Vagrant: вместо неё он подставит ID
+    # текущей виртуальной машины. Группа /k8s-stage1 помогает держать
+    # все учебные ВМ вместе в интерфейсе VirtualBox.
 
     # Отключаем аудио: нам оно не нужно, VirtualBox иногда выдаёт
     # предупреждение если аудиодрайвер не найден.
     vb.customize ["modifyvm", :id, "--audio", "none"]
+    # Звук для Kubernetes-лаборатории бесполезен, а отключение аудио
+    # убирает лишние предупреждения и чуть упрощает конфигурацию ВМ.
   end
 
   # ---------------------------------------------------------------------------
@@ -82,10 +224,15 @@ Vagrant.configure("2") do |config|
   #   - kube-scheduler     (решает, на какой воркер запустить Pod)
   #   - etcd               (база данных кластера, хранит всё состояние)
   config.vm.define "k8s-master" do |master|
+    # config.vm.define создаёт отдельную именованную ВМ.
+    # Имя "k8s-master" будет использоваться в командах вида:
+    #   vagrant ssh k8s-master
+    #   vagrant reload k8s-master
 
     # Имя хоста внутри ОС (hostname).
     # Kubernetes использует hostname для идентификации ноды в кластере.
     master.vm.hostname = "k8s-master"
+    # Это имя увидим внутри Linux командой hostname, а также в kubectl get nodes.
 
     # Второй сетевой адаптер — внутренняя сеть хоста (host-only).
     # ЗАЧЕМ: Kubernetes-компоненты общаются между нодами именно через
@@ -97,6 +244,8 @@ Vagrant.configure("2") do |config|
     # СЕТЬ 192.168.56.0/24 — стандартная host-only сеть VirtualBox.
     # /24 означает маску 255.255.255.0 (256 адресов: .1–.254).
     master.vm.network "private_network", ip: "192.168.56.10"
+    # private_network создаёт дополнительный сетевой интерфейс с фиксированным IP.
+    # В отличие от NAT-адреса 10.0.2.15, этот адрес стабилен и уникален для ноды.
 
     # Проброс портов: порт хоста Windows → порт гостевой ВМ.
     # После vagrant up можно подключиться: ssh vagrant@127.0.0.1 -p 2232
@@ -104,34 +253,63 @@ Vagrant.configure("2") do |config|
     # guest: 22  — стандартный SSH-порт внутри ВМ
     # host:  2232 — нестандартный порт на Windows (чтобы не конфликтовать
     #               с основным SSH или другими ВМ)
-    master.vm.network "forwarded_port", guest: 22,   host: 2232, id: "ssh-master"
+    master.vm.network "forwarded_port", guest: 22,   host: stage1_master_ssh_port, id: "ssh-master"
+    # forwarded_port пробрасывает порт с Windows-хоста внутрь ВМ.
+    # Теперь localhost:2232 на хосте попадёт на SSH-сервер master-ноды.
 
     # Kubernetes API Server — используется kubectl с хоста Windows.
     # Команда на Windows: $env:KUBECONFIG="путь\до\admin.conf"
-    master.vm.network "forwarded_port", guest: 6443, host: 6443, id: "k8s-api"
+    master.vm.network "forwarded_port", guest: 6443, host: stage1_master_api_port, id: "k8s-api"
+    # Порт 6443 — стандартный HTTPS-порт Kubernetes API server.
+    # Благодаря пробросу можно управлять кластером с Windows, а не только из ВМ.
 
     # Kubernetes Dashboard — веб-интерфейс кластера.
     # После настройки: открой браузер → https://localhost:30443
-    master.vm.network "forwarded_port", guest: 30443, host: 30443, id: "dashboard"
+    master.vm.network "forwarded_port", guest: 30443, host: stage1_master_dashboard_port, id: "dashboard"
+    # Dashboard публикуется как NodePort 30443 внутри кластера.
+    # Этот проброс делает его доступным в браузере Windows-хоста.
 
     master.vm.provider "virtualbox" do |vb|
+      # Этот вложенный блок переопределяет общие настройки только для master.
       # Master требует больше ресурсов: здесь работает etcd и control plane.
       vb.memory = 3072  # 3 ГБ
+      # Master хранит etcd и системные компоненты Kubernetes, поэтому RAM больше.
       vb.cpus   = 2
-      vb.name   = "k8s-stage1-master"
+      # CPU оставляем 2 — это минимально разумное значение для control plane.
+      vb.name   = "#{stage1_virtualbox_prefix}-master"
+      # Имя ВМ в VirtualBox делаем уникальным для каждого нового кластера.
+      # Так orphan-хвосты не конфликтуют со следующими запусками и мы не рискуем
+      # случайно задеть чужой локальный кластер пользователя.
     end
 
     # Скрипт общей подготовки (устанавливает containerd, kubeadm, kubelet, kubectl).
     # Запускается первым, от root, внутри ВМ.
-    master.vm.provision "shell", path: "../scripts/common.sh",
+    master.vm.provision "shell", path: "scripts/common.sh",
       env: { "NODE_IP" => "192.168.56.10" }
+    # provision "shell" означает: после создания ВМ Vagrant выполнит bash-скрипт.
+    # env передаёт внутрь скрипта переменную окружения NODE_IP.
+    # common.sh отключает swap, ставит containerd, kubelet, kubeadm и kubectl.
 
     # Скрипт инициализации master-ноды (kubeadm init + Calico CNI + Dashboard).
-    master.vm.provision "shell", path: "../scripts/master.sh",
+    master.vm.provision "shell", path: "scripts/master.sh",
       env: {
         "MASTER_IP"  => "192.168.56.10",
         "POD_CIDR"   => "10.244.0.0/16"
       }
+    # Второй provisioning запускается после common.sh.
+    # Здесь master превращается в control-plane: kubeadm init поднимает API server,
+    # затем ставится Calico и Dashboard.
+
+    master.trigger.after :destroy do |trigger|
+      # После удаления master просим хост дополнительно проверить хвосты в VirtualBox.
+      # Это страховка на случай, если Vagrant удалил своё состояние, а orphan-VM осталась.
+      trigger.name = "Cleanup orphan VirtualBox tail for stage1 master"
+      trigger.run = {
+        inline: "powershell.exe -ExecutionPolicy Bypass -File #{ps_quote(cleanup_tail_script)} -VmName #{ps_quote("#{stage1_virtualbox_prefix}-master")}"
+      }
+      # В cleanup-скрипт передаём точное VirtualBox-имя именно этого master.
+      # Благодаря exact-name очистка не затронет чужие кластеры пользователя.
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -143,47 +321,86 @@ Vagrant.configure("2") do |config|
   #   - containerd         (среда запуска контейнеров)
   #   - твои приложения    (в виде Pod-ов)
   config.vm.define "k8s-worker1" do |worker|
+    # Первая worker-нода. На ней будут запускаться пользовательские Pod-ы.
 
     worker.vm.hostname = "k8s-worker1"
+    # hostname worker-ноды внутри Linux.
     worker.vm.network "private_network", ip: "192.168.56.11"
-    worker.vm.network "forwarded_port", guest: 22, host: 2242, id: "ssh-worker1"
+    # Фиксированный внутренний IP первой worker-ноды.
+    worker.vm.network "forwarded_port", guest: 22, host: stage1_worker1_ssh_port, id: "ssh-worker1"
+    # SSH к worker1 будет доступен с Windows на порту 2242.
 
     worker.vm.provider "virtualbox" do |vb|
       vb.memory = 2048
+      # Для worker обычно достаточно 2 ГБ RAM в учебном стенде.
       vb.cpus   = 2
-      vb.name   = "k8s-stage1-worker1"
+      # Два виртуальных CPU позволят ноде тянуть kubelet и простые нагрузки.
+      vb.name   = "#{stage1_virtualbox_prefix}-worker1"
+      # Уникальное VirtualBox-имя worker1 внутри конкретного инстанса Stage 1.
     end
 
-    worker.vm.provision "shell", path: "../scripts/common.sh",
+    worker.vm.provision "shell", path: "scripts/common.sh",
       env: { "NODE_IP" => "192.168.56.11" }
+    # Подготовка worker1: те же базовые пакеты и системные настройки, что у master.
 
     # Скрипт присоединения к кластеру (kubeadm join).
     # Ждёт появления файла join-command.sh, созданного master-ом.
-    worker.vm.provision "shell", path: "../scripts/worker.sh"
+    worker.vm.provision "shell", path: "scripts/worker.sh"
+    # worker.sh дождётся join-команды и подключит ноду к уже созданному master.
+
+    worker.trigger.after :destroy do |trigger|
+      # Та же идея для worker1: после destroy дополнительно проверяем orphan-хвост.
+      trigger.name = "Cleanup orphan VirtualBox tail for stage1 worker1"
+      trigger.run = {
+        inline: "powershell.exe -ExecutionPolicy Bypass -File #{ps_quote(cleanup_tail_script)} -VmName #{ps_quote("#{stage1_virtualbox_prefix}-worker1")}"
+      }
+      # Удаляется только VM с точным именем текущего worker1 из этого запуска stage1.
+    end
   end
 
   # ---------------------------------------------------------------------------
   # НОДА 3: WORKER 2 (вторая рабочая нода)
   # ---------------------------------------------------------------------------
   config.vm.define "k8s-worker2" do |worker|
+    # Вторая worker-нода. По сути это копия первой, но с другим IP и именем.
 
     worker.vm.hostname = "k8s-worker2"
+    # hostname второй worker-ноды.
     worker.vm.network "private_network", ip: "192.168.56.12"
-    worker.vm.network "forwarded_port", guest: 22, host: 2252, id: "ssh-worker2"
+    # Фиксированный IP второй worker-ноды.
+    worker.vm.network "forwarded_port", guest: 22, host: stage1_worker2_ssh_port, id: "ssh-worker2"
+    # SSH к worker2 будет доступен через localhost:2252.
 
     worker.vm.provider "virtualbox" do |vb|
       vb.memory = 2048
+      # RAM второй worker-ноды.
       vb.cpus   = 2
-      vb.name   = "k8s-stage1-worker2"
+      # CPU второй worker-ноды.
+      vb.name   = "#{stage1_virtualbox_prefix}-worker2"
+      # Уникальное VirtualBox-имя второй worker-ноды внутри текущего кластера.
     end
 
-    worker.vm.provision "shell", path: "../scripts/common.sh",
+    worker.vm.provision "shell", path: "scripts/common.sh",
       env: { "NODE_IP" => "192.168.56.12" }
+    # Базовая подготовка worker2.
 
-    worker.vm.provision "shell", path: "../scripts/worker.sh"
+    worker.vm.provision "shell", path: "scripts/worker.sh"
+    # Присоединение worker2 к кластеру через kubeadm join.
+
+    worker.trigger.after :destroy do |trigger|
+      # И аналогичная точечная очистка хвоста для второй worker-ноды.
+      trigger.name = "Cleanup orphan VirtualBox tail for stage1 worker2"
+      trigger.run = {
+        inline: "powershell.exe -ExecutionPolicy Bypass -File #{ps_quote(cleanup_tail_script)} -VmName #{ps_quote("#{stage1_virtualbox_prefix}-worker2")}"
+      }
+      # Скрипт смотрит только на exact-name и не трогает остальные VM в VirtualBox.
+    end
   end
 
 end
+# end завершает главный блок Vagrant.configure.
+# После чтения этого файла Vagrant уже знает, сколько ВМ создавать,
+# какие сети, ресурсы и скрипты применять.
 # =============================================================================
 # СТРУКТУРА СЕТИ:
 #
