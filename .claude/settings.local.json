@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sshpass -p 'f3n6v5' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 admin@127.0.0.1 -p 2232 'echo \"\"=== HOSTNAME ===\"\" && hostname && echo \"\"=== OS ===\"\" && cat /etc/os-release && echo \"\"=== KERNEL ===\"\" && uname -r && echo \"\"=== IP ADDR ===\"\" && ip addr && echo \"\"=== IP ROUTE ===\"\" && ip route && echo \"\"=== HOSTS ===\"\" && cat /etc/hosts')",
+      "Bash(powershell.exe -Command \"Get-Command ssh | Select-Object -ExpandProperty Source\")",
+      "Bash(where.exe plink:*)",
+      "Bash(pip3 show:*)",
+      "Bash(where.exe python:*)",
+      "Bash(where.exe python3:*)",
+      "Bash(SSH_ASKPASS=/tmp/ssh_pass.sh DISPLAY=: ssh -o StrictHostKeyChecking=no -o BatchMode=no admin@127.0.0.1 -p 2232 ':*)",
+      "Bash(SSH_ASKPASS=/tmp/ssh_pass.sh DISPLAY=: ssh -o StrictHostKeyChecking=no -o BatchMode=no admin@127.0.0.1 -p 2242 ':*)",
+      "Bash(SSH_ASKPASS=/tmp/ssh_pass.sh DISPLAY=: ssh -o StrictHostKeyChecking=no -o BatchMode=no admin@127.0.0.1 -p 2252 ':*)",
+      "Bash(where makensis:*)",
+      "Bash(powershell.exe -Command \"Get-Command makensis -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source\")",
+      "Read(//c/Program Files \\(x86\\)/NSIS/**)",
+      "Read(//c/Program Files/NSIS/**)",
+      "Bash(\"/c/Program Files \\(x86\\)/NSIS/makensis.exe\" \"K:/repositories/git/ipr/crm/stage2/installer/k8s-lab.nsi\")",
+      "Bash(vagrant validate:*)",
+      "Bash(SSH_ASKPASS=/tmp/ssh_pass.sh DISPLAY=: ssh -o StrictHostKeyChecking=no -o BatchMode=no -o ConnectTimeout=3 admin@127.0.0.1 -p 2232 \"echo alive\")",
+      "Bash(echo \"master: $?\")",
+      "Bash(SSH_ASKPASS=/tmp/ssh_pass.sh DISPLAY=: ssh -o StrictHostKeyChecking=no -o BatchMode=no -o ConnectTimeout=3 admin@127.0.0.1 -p 2242 \"echo alive\")",
+      "Bash(echo \"worker1: $?\")",
+      "Bash(SSH_ASKPASS=/tmp/ssh_pass.sh DISPLAY=: ssh -o StrictHostKeyChecking=no -o BatchMode=no -o ConnectTimeout=3 admin@127.0.0.1 -p 2252 \"echo alive\")",
+      "Bash(bash --version)",
+      "Bash(vagrant up:*)",
+      "Bash(tee /tmp/stage1-vagrant.log)"
+    ]
+  }
+}
