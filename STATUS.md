@@ -1,0 +1,300 @@
+# STATUS
+
+## Назначение файла
+
+Этот файл нужен как живая точка синхронизации для пользователя и любого следующего ассистента.
+
+Здесь фиксируются:
+
+- текущий этап работ;
+- уже подтверждённые результаты;
+- незавершённые задачи;
+- согласованный порядок следующих шагов;
+- важные правила проекта и процесса.
+
+---
+
+## Главная цель проекта
+
+Проект должен быть одновременно:
+
+- рабочим учебным Kubernetes-стендом;
+- понятным учебным материалом для школьников и начинающих.
+
+Это означает два обязательных требования:
+
+- кластер должен стабильно подниматься и работать;
+- Vagrantfile, shell-скрипты, PowerShell-скрипты и документы должны объяснять, что происходит и зачем.
+
+---
+
+## Текущий этап
+
+Сейчас работа идёт только над `stage1`.
+
+`stage2`, корневой сценарий и более глубокий рефакторинг пока сознательно отложены.
+
+Согласованный порядок:
+
+1. довести `stage1` до полностью рабочего состояния;
+2. зафиксировать это отдельными bugfix-коммитами;
+3. после этого перенести практики на `stage2` в новой bugfix-ветке;
+4. только потом идти к более крупным изменениям и отдельной feature-ветке с золотым образом.
+
+---
+
+## Текущая ветка
+
+Текущая рабочая ветка:
+
+`bugfix/stage1-cluster-bootstrap`
+
+---
+
+## Уже зафиксированные коммиты
+
+На текущей ветке уже есть такие коммиты над `develop`:
+
+1. `5259960` `bugfix/stage1-cluster-bootstrap: stabilize stage1 vm names and ports`
+2. `fc2d1fc` `bugfix/stage1-cluster-bootstrap: make stage1 common provisioning idempotent`
+3. `7b0d129` `bugfix/stage1-cluster-bootstrap: prioritize reliable cluster bootstrap`
+4. `08eb019` `bugfix/stage1-cluster-bootstrap: add stage1 post-bootstrap validation`
+5. `4ccdca8` `bugfix/stage1-cluster-bootstrap: clean stage1 destroy runtime state`
+6. `beb007f` `bugfix/stage1-cluster-bootstrap: refresh student docs and glossary`
+7. `b262f96` `bugfix/stage1-cluster-bootstrap: streamline stage1 learner entrypoint`
+8. `a784f07` `bugfix/stage1-cluster-bootstrap: make launch bat cmd-safe`
+
+---
+
+## Что уже работает в `stage1`
+
+Подтверждено на текущем кластере:
+
+- `k8s-master`, `k8s-worker1`, `k8s-worker2` подняты и находятся в `Ready`;
+- Calico работает на всех нодах;
+- smoke-тест `nginx` успешно разворачивается;
+- `nginx-smoke-check` завершается как `Complete`;
+- Dashboard доступен в браузере;
+- `run-post-bootstrap.ps1` экспортирует `kubeconfig` для Windows-хоста;
+- Windows `kubectl` может работать напрямую через `stage1\kubeconfig-stage1.yaml`.
+
+---
+
+## Что дополнительно подтверждено вручную из Windows PowerShell
+
+После подключения:
+
+```powershell
+$env:KUBECONFIG = "K:\repositories\git\ipr\crm\stage1\kubeconfig-stage1.yaml"
+```
+
+штатно отрабатывают команды:
+
+- `kubectl get ns`
+- `kubectl get nodes -o wide`
+- `kubectl get pods -A -o wide`
+- `kubectl get all -n smoke-tests -o wide`
+- `kubectl get deployment nginx-smoke -n smoke-tests`
+- `kubectl get pods -n smoke-tests -o wide`
+- `kubectl get svc -n smoke-tests`
+- `kubectl get job nginx-smoke-check -n smoke-tests`
+- `kubectl describe deployment nginx-smoke -n smoke-tests`
+- `kubectl describe svc nginx-smoke -n smoke-tests`
+- `kubectl get endpoints nginx-smoke -n smoke-tests`
+- `kubectl cluster-info`
+
+Это означает:
+
+- host-side `kubeconfig` для Windows реально рабочий;
+- smoke-проект подтверждён из Windows-терминала;
+- Dashboard и browser-проверка подтверждены;
+- `stage1` теперь можно проверять и через `vagrant ssh`, и через обычный `kubectl` на Windows-хосте.
+
+---
+
+## Что именно изменено в `stage1`
+
+### `stage1/Vagrantfile`
+
+Сделано:
+
+- исправлены пути на локальные `stage1/scripts/*`;
+- добавлен уникальный токен кластера для VirtualBox-имён;
+- добавлена отдельная группа VirtualBox;
+- добавлена проверка и фиксация пула host-портов заранее;
+- добавлены post-destroy trigger-ы для точечной очистки orphan-VM;
+- комментарии расширены в учебном стиле.
+
+### `stage1/scripts/common.sh`
+
+Сделано:
+
+- устранён повторный сбой `gpg --dearmor` при повторном `provision`;
+- добавлен `--yes` для безопасной перезаписи keyring без TTY-вопросов.
+
+### `stage1/scripts/master.sh`
+
+Сделано:
+
+- bootstrap сосредоточен на рабочем master и присоединении worker-нод;
+- второстепенные шаги выведены из критического пути.
+
+### `stage1/scripts/finalize-cluster.sh`
+
+Сделано:
+
+- вынесена отдельная post-join финализация сети;
+- добавлено ожидание регистрации всех нод;
+- Calico применяется только тогда, когда это действительно нужно;
+- добавлены явные ожидания для `Ready`-нод и Pod-ов Calico.
+
+### `stage1/scripts/run-post-bootstrap.ps1`
+
+Сделано:
+
+- добавлен host-side сценарий финализации после `vagrant up`;
+- порядок шагов жёстко закреплён:
+  1. проверка нод;
+  2. финализация сети и Calico;
+  3. smoke-тест;
+  4. ожидание успеха smoke-теста;
+  5. установка Dashboard;
+  6. экспорт `kubeconfig` для Windows.
+
+### `stage1/scripts/export-host-kubeconfig.ps1`
+
+Сделано:
+
+- добавлен экспорт host-side `kubeconfig` после post-bootstrap;
+- подготовлен доступ к API через `127.0.0.1:6443`.
+
+### `stage1/scripts/use-stage1-kubectl.ps1`
+
+Сделано:
+
+- добавлен helper для текущей PowerShell-сессии;
+- упрощено подключение `KUBECONFIG` из Windows.
+
+### `smoke-tests/nginx-smoke.yaml`
+
+Сделано:
+
+- добавлен простой повторяемый smoke-тест;
+- используются `Namespace`, `Deployment`, `Service` и `Job`;
+- `Job` проверяет Service по внутреннему DNS имени изнутри кластера;
+- манифест оформлен как учебный пример.
+
+---
+
+## Согласованная логика этапов `stage1`
+
+Текущая учебная логика такая:
+
+1. поднять 3 ноды;
+2. выполнить `kubeadm init` на master;
+3. выполнить `kubeadm join` для worker-нод;
+4. настроить Pod-сеть и Calico;
+5. прогнать smoke-тест простого приложения;
+6. только после этого установить Dashboard;
+7. экспортировать `kubeconfig` для Windows-хоста;
+8. проверить кластер обычным `kubectl` из Windows.
+
+---
+
+## Что ещё нужно сделать на текущем этапе
+
+### Фикс-коммиты
+
+Нужно:
+
+1. зафиксировать helper и runtime-правки `stage1` отдельным bugfix-коммитом;
+2. зафиксировать обновление учебной документации отдельными bugfix-коммитами;
+3. убедиться, что `stage1/kubeconfig-stage1.yaml` не попадает в git.
+
+### Подготовка к merge в `develop`
+
+Нужно:
+
+1. обновить `STATUS.md` финальным состоянием после коммитов;
+2. проверить рабочее дерево;
+3. выполнить merge в `develop` через `--no-ff`.
+
+---
+
+## Глобальные правила, которые уже надо помнить
+
+### Язык
+
+Все ответы пользователю — на русском языке, кроме:
+
+- кода;
+- CLI-команд;
+- путей;
+- логов;
+- точных идентификаторов;
+- точных цитат.
+
+### Запрет на служебные названия
+
+Нельзя использовать названия ассистентов, моделей или нейросетей:
+
+- в названиях веток;
+- в описаниях;
+- в комментариях;
+- в документах;
+- в инструкциях;
+- в постоянной памяти.
+
+### Git-flow пользователя
+
+Обязательная схема:
+
+- `main`
+- `develop`
+- `feature/*`
+- `bugfix/*`
+- `hotfix/*`
+
+Дополнительно:
+
+- не более 6 файлов в коммите;
+- не более 20 коммитов на ветке;
+- минимум 3 коммита на ветке перед дальнейшим движением;
+- сообщения коммитов только на английском;
+- merge только через `--no-ff`;
+- никаких destructive git-операций без явного разрешения пользователя.
+
+### Правила PowerShell для этого проекта
+
+Нужно помнить и соблюдать:
+
+- host-side команды надо запускать из правильного каталога, для `stage1` это `stage1`;
+- в Windows PowerShell 5 нельзя использовать `&&`, лучше использовать отдельные команды;
+- вложенные кавычки в `vagrant ssh ... -c ...` надо упрощать;
+- для сложных host-side сценариев лучше выносить логику в `.ps1`;
+- при работе с `vagrant ssh` и PowerShell нужно заранее фиксировать `workdir`.
+
+---
+
+## Что должен сделать следующий ассистент в первую очередь
+
+1. Прочитать этот `STATUS.md`.
+2. Проверить ветку, число коммитов и `git status`.
+3. Работать только над `stage1`, пока пользователь не скажет иначе.
+4. Не трогать `stage2` и корневой сценарий на текущем этапе.
+5. Не убирать учебные комментарии, а усиливать их.
+6. Завершить фикс-коммиты и подготовить merge в `develop`.
+
+---
+
+## Критерий завершения текущего этапа
+
+Текущий этап можно считать завершённым только если одновременно выполнены все условия:
+
+1. `stage1` поднимается с нуля.
+2. Master и 2 worker переходят в `Ready`.
+3. Calico стабильно работает на всех нодах.
+4. Smoke-приложение успешно разворачивается и проходит проверку.
+5. Dashboard ставится в самом конце отдельным шагом.
+6. Windows `kubectl` работает через `stage1\kubeconfig-stage1.yaml`.
+7. Новые скрипты и шаги понятны школьнику по комментариям и пояснениям.

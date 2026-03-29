@@ -88,6 +88,19 @@ echo "  kubeconfig настроен для пользователя vagrant"
 export KUBECONFIG=/etc/kubernetes/admin.conf
 echo "  KUBECONFIG установлен для текущего сеанса root"
 
+kubectl_apply_server_side() {
+  kubectl apply --server-side --force-conflicts \
+    --kubeconfig=/etc/kubernetes/admin.conf \
+    "$@"
+}
+
+sleep_with_notice() {
+  local seconds="${1:?seconds are required}"
+  local reason="${2:?reason is required}"
+  echo "  Пауза ${seconds} сек: ${reason}"
+  sleep "${seconds}"
+}
+
 # =============================================================================
 # ШАГ 3: Установка Calico CNI
 # =============================================================================
@@ -127,9 +140,8 @@ done
 # Шаг 3a: Устанавливаем Tigera Operator.
 # Tigera Operator — «менеджер» для Calico. Он управляет Calico как
 # Kubernetes Custom Resource (CRD). Это современный способ установки Calico.
-kubectl apply -f \
-  "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/tigera-operator.yaml" \
-  --kubeconfig=/etc/kubernetes/admin.conf
+kubectl_apply_server_side -f \
+  "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/tigera-operator.yaml"
 echo "  Tigera Operator применён"
 
 # Шаг 3b: Конфигурируем Calico через Custom Resource.
@@ -141,7 +153,7 @@ echo "  Tigera Operator применён"
 # cidr: 10.244.0.0/16 — должен совпадать с --pod-network-cidr в kubeadm init!
 # blockSize: 26 — каждой ноде выделяется /26 = 64 IP для Pod-ов.
 echo "  Настройка Calico Installation..."
-kubectl apply -f - --kubeconfig=/etc/kubernetes/admin.conf <<EOF
+kubectl_apply_server_side -f - <<EOF
 apiVersion: operator.tigera.io/v1
 kind: Installation
 metadata:
@@ -157,6 +169,10 @@ spec:
       nodeSelector: all()
 EOF
 echo "  Calico Installation создан"
+
+# Даём оператору Calico время создать CRD-ресурсы, deployment'ы и сетевые pod'ы.
+# В реальном мире это часто занимает минуты, а не секунды.
+sleep_with_notice 180 "ожидаем первичную настройку Tigera Operator и Calico"
 
 # Ждём, пока Calico-поды запустятся (обычно 2–5 минут).
 echo "  Ожидаем готовности нод после установки Calico..."
@@ -186,129 +202,9 @@ kubeadm token create --print-join-command > /vagrant/join-command.sh
 chmod +x /vagrant/join-command.sh
 echo "  /vagrant/join-command.sh создан"
 
-# =============================================================================
-# ШАГ 5: Kubernetes Dashboard
-# =============================================================================
-# Kubernetes Dashboard — официальный веб-интерфейс для визуального управления
-# кластером. Школьнику удобнее смотреть на Pod-ы в браузере, чем в терминале.
-#
-# ЧТО ПОКАЗЫВАЕТ: Pods, Deployments, Services, Nodes, события кластера,
-#   использование ресурсов (CPU/RAM), логи контейнеров.
-#
-# ДОСТУП ПОСЛЕ УСТАНОВКИ: https://localhost:30443
-# (браузер откроется с предупреждением о самоподписанном сертификате —
-#  нажми "Advanced" → "Proceed" — это безопасно в лабораторной сети)
-#
-# ОФИЦИАЛЬНЫЙ РЕПОЗИТОРИЙ: https://github.com/kubernetes/dashboard
-DASHBOARD_VERSION="v3.0.0"
-
-echo ">>> [ШАГ 5] Установка Kubernetes Dashboard ${DASHBOARD_VERSION}..."
-
-# Проверяем, не установлен ли уже Dashboard.
-if kubectl get namespace kubernetes-dashboard --kubeconfig=/etc/kubernetes/admin.conf > /dev/null 2>&1; then
-  echo "  Dashboard уже установлен, пропускаем."
-else
-  kubectl apply -f \
-    "https://raw.githubusercontent.com/kubernetes/dashboard/${DASHBOARD_VERSION}/charts/kubernetes-dashboard.yaml" \
-    --kubeconfig=/etc/kubernetes/admin.conf || \
-  # Если манифест для версии не найден, используем актуальный
-  kubectl apply -f \
-    "https://raw.githubusercontent.com/kubernetes/dashboard/master/charts/kubernetes-dashboard.yaml" \
-    --kubeconfig=/etc/kubernetes/admin.conf
-  echo "  Dashboard применён"
-fi
-
-# =============================================================================
-# ШАГ 6: NodePort-сервис для Dashboard
-# =============================================================================
-# По умолчанию Dashboard создаётся с типом ClusterIP — доступен только
-# внутри кластера. Нам нужен NodePort — доступ с хоста Windows.
-#
-# ТИПЫ SERVICE в Kubernetes:
-#   ClusterIP  — только внутри кластера (default)
-#   NodePort   — порт на каждой ноде → пробрасывается в Service
-#   LoadBalancer — облачный балансировщик нагрузки (не для нашего lab)
-#
-# NodePort 30443 → Dashboard Pod (HTTPS 8443)
-echo ">>> [ШАГ 6] Создание NodePort сервиса для Dashboard..."
-kubectl apply -f - --kubeconfig=/etc/kubernetes/admin.conf <<'EOF'
-apiVersion: v1
-kind: Service
-metadata:
-  name: kubernetes-dashboard-nodeport
-  namespace: kubernetes-dashboard
-  labels:
-    app: kubernetes-dashboard
-spec:
-  type: NodePort
-  selector:
-    app: kubernetes-dashboard
-  ports:
-  - name: https
-    protocol: TCP
-    port: 443
-    targetPort: 8443
-    nodePort: 30443
-EOF
-echo "  NodePort 30443 → Dashboard создан"
-
-# =============================================================================
-# ШАГ 7: Admin ServiceAccount и токен для входа в Dashboard
-# =============================================================================
-# По умолчанию Dashboard требует аутентификации.
-# Мы создаём "admin-user" — ServiceAccount с правами cluster-admin.
-#
-# ВНИМАНИЕ (важно для реального production!):
-#   cluster-admin = полный доступ ко всему кластеру.
-#   В production нужно создавать ограниченные роли (RBAC).
-#   В нашем учебном lab это допустимо.
-#
-# Подробнее о RBAC: https://kubernetes.io/docs/reference/access-authn-authz/rbac/
-echo ">>> [ШАГ 7] Создание admin-user для Dashboard..."
-
-kubectl apply -f - --kubeconfig=/etc/kubernetes/admin.conf <<'EOF'
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: admin-user
-  namespace: kubernetes-dashboard
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: admin-user-binding
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: cluster-admin
-subjects:
-- kind: ServiceAccount
-  name: admin-user
-  namespace: kubernetes-dashboard
-EOF
-
-# Ждём запуска Dashboard Pod.
-echo "  Ожидаем запуска Dashboard..."
-kubectl -n kubernetes-dashboard wait \
-  --for=condition=Available \
-  deployment/kubernetes-dashboard \
-  --timeout=120s \
-  --kubeconfig=/etc/kubernetes/admin.conf 2>/dev/null || true
-
-# Генерируем токен для входа (действителен 24 часа).
-# Этот токен вставляется в поле "Enter token" на странице Dashboard.
-echo ""
-echo "========================================================"
-echo "  ТОКЕН ДЛЯ ВХОДА В DASHBOARD (скопируй в браузер):"
-echo "========================================================"
-kubectl -n kubernetes-dashboard create token admin-user \
-  --duration=24h \
-  --kubeconfig=/etc/kubernetes/admin.conf
-echo "========================================================"
-echo "  URL: https://localhost:30443"
-echo "  (при предупреждении браузера → Advanced → Proceed)"
-echo "========================================================"
+echo ">>> [ШАГ 5] Dashboard пока пропускаем."
+echo "  Приоритет текущего provisioning: полностью поднять рабочий кластер (master + workers)."
+echo "  Dashboard будет настраиваться отдельным шагом уже после того, как все ноды войдут в Ready."
 
 echo ""
 echo ">>> [master.sh] Готово!"
