@@ -181,13 +181,21 @@ if errorlevel 1 (
 
 echo.
 echo ════════════════════════════════════════
-echo  Кластер запущен!
-echo.
-vagrant ssh %_PREFIX%-master --command "kubectl get nodes -o wide"
-echo.
-echo  Dashboard: https://localhost:30443
-echo  Токен:     vagrant ssh %_PREFIX%-master -- kubectl -n kubernetes-dashboard create token admin-user
+echo  Запуск post-bootstrap сценария...
 echo ════════════════════════════════════════
+echo.
+
+rem --- Запуск post-bootstrap для финализации кластера ---
+powershell.exe -ExecutionPolicy Bypass -File ".\scripts\run-post-bootstrap.ps1"
+
+if errorlevel 1 (
+  echo.
+  echo  [ОШИБКА] post-bootstrap завершился с ошибкой.
+  echo  Диагностика: vagrant status
+  echo  Подробности: docs\troubleshooting.md
+  exit /b 1
+)
+
 echo.
 goto :eof
 

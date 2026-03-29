@@ -1,7 +1,6 @@
 # Kubernetes Cluster Lab - Stage 2
 
-> Это `stage2`.
-> Здесь живёт более гибкий и упаковочный сценарий: `.env`, SSH-ключи, proxy-launch, installer и более настраиваемая конфигурация кластера.
+> Это `stage2` — гибкий сценарий с настраиваемой конфигурацией, SSH-ключами и post-bootstrap автоматизацией.
 >
 > Если ты только начинаешь, сначала пройди `../stage1/`.
 
@@ -15,14 +14,14 @@ flowchart TB
     env[".env / .env.example"]
     vagrantfile["Vagrantfile"]
     proxy["proxy-launch.bat"]
-    installer["installer/"]
+    postboot["scripts/run-post-bootstrap.ps1"]
     scripts["scripts/"]
     docs["../docs/"]
 
     stage2 --> env
     stage2 --> vagrantfile
     stage2 --> proxy
-    stage2 --> installer
+    stage2 --> postboot
     stage2 --> scripts
     docs --> stage2
 ```
@@ -34,7 +33,7 @@ flowchart TB
 ```mermaid
 flowchart LR
     s1["Stage 1\nФиксированные значения\nУчебная прозрачность"]
-    s2["Stage 2\n.env, installer, proxy-launch\nБольше гибкости"]
+    s2["Stage 2\n.env, SSH-ключи\nPost-bootstrap\nБольше гибкости"]
     future["Future\nЗолотой образ / Packer"]
 
     s1 --> s2
@@ -46,42 +45,31 @@ flowchart LR
 ## Что добавляет Stage 2 по сравнению со Stage 1
 
 | Возможность | Stage 1 | Stage 2 |
-|---|---|---|
+|-------------|---------|---------|
 | Конфигурация | Хардкод в Vagrantfile | Переменные в `.env` |
-| SSH | `vagrant` по стандартной логике | Отдельные ключи и host-side automation |
-| Запуск | `vagrant up` или `launch.bat` | `proxy-launch.bat` и installer |
-| Число worker-ов | Фиксировано | Параметризуется |
-| CPU/RAM | Фиксировано | Настраивается |
-| Подсеть | Фиксирована | Параметризуется |
-
----
-
-## Timeline: Дорожная карта Stage 2
-
-```mermaid
-timeline
-    title Stage 2 Roadmap
-    section Current
-      Stage 1 практики уже доказаны : завершено
-      Stage 2 ещё не доведён до того же уровня : backlog
-    section Next
-      Перенос cleanup и host-kubectl практик : backlog
-      Проверка installer и proxy-launch : backlog
-      Учебные комментарии и гайды : backlog
-    section Later
-      Общий шаблон для других проектов : backlog
-      Packer / golden image : backlog
-```
+| SSH | `vagrant/vagrant` (пароль) | SSH-ключи (`.vagrant/node-keys/*.ed25519`) |
+| Запуск | `vagrant up` или `launch.bat` | `proxy-launch.bat` с параметрами |
+| Число worker-ов | Фиксировано (2) | Настраивается (`WORKER_COUNT`) |
+| CPU/RAM | Фиксировано | Настраивается (`VM_CPUS`, `VM_MEMORY_MB`) |
+| Подсеть | Фиксирована | Параметризуется (`PRIVATE_NETWORK_PREFIX`) |
+| Post-bootstrap | Ручной запуск | Автоматический после `vagrant up` |
+| Kubeconfig для Windows | Ручной экспорт | Автоматический экспорт |
 
 ---
 
 ## Быстрый старт
 
-### Вариант A: proxy-launch
+### Вариант A: proxy-launch (рекомендуется)
 
 ```powershell
 cd K:\repositories\git\ipr\crm\stage2
 .\proxy-launch.bat
+```
+
+С параметрами:
+
+```powershell
+.\proxy-launch.bat --workers=3 --cpus=4 --memory=4096
 ```
 
 ### Вариант B: вручную
@@ -94,21 +82,135 @@ vagrant up
 
 ---
 
-## Что важно помнить сейчас
+## Что происходит после `vagrant up`
 
-На текущем этапе проекта основной технически подтверждённый и учебно завершённый сценарий — это `stage1`.
+`proxy-launch.bat` автоматически запускает `run-post-bootstrap.ps1`, который:
 
-`stage2` пока нужно рассматривать как следующий слой развития:
+1. **Проверяет регистрацию всех нод** — ждёт, когда все worker-ноды присоединятся
+2. **Финализирует сеть** — проверяет готовность Calico CNI
+3. **Запускает smoke-тест** — разворачивает `nginx-smoke` deployment + Job
+4. **Ждёт успеха smoke-теста** — проверяет, что Job завершился успешно
+5. **Устанавливает Dashboard** — только после подтверждения работоспособности кластера
+6. **Экспортирует kubeconfig** — создаёт `kubeconfig-stage2.yaml` для Windows-хоста
 
-- более гибкий;
-- более ближе к реальной автоматизации;
-- но ещё не с тем же уровнем подтверждения и учебной доводки, что уже есть в `stage1`.
+---
+
+## Работа с `kubectl` прямо из Windows PowerShell
+
+После `run-post-bootstrap.ps1` автоматически создаётся:
+
+`K:\repositories\git\ipr\crm\stage2\kubeconfig-stage2.yaml`
+
+### Вручную установить переменную
+
+```powershell
+$env:KUBECONFIG = "K:\repositories\git\ipr\crm\stage2\kubeconfig-stage2.yaml"
+```
+
+### Или использовать helper-скрипт
+
+```powershell
+. .\scripts\use-stage2-kubectl.ps1
+```
+
+---
+
+## Команды проверки кластера из Windows
+
+```powershell
+kubectl get nodes -o wide
+kubectl get pods -A -o wide
+kubectl get ns
+kubectl get svc -n kubernetes-dashboard
+kubectl cluster-info
+```
+
+## Команды проверки smoke-проекта
+
+```powershell
+kubectl get all -n smoke-tests -o wide
+kubectl get deployment nginx-smoke -n smoke-tests
+kubectl get pods -n smoke-tests -o wide
+kubectl get job nginx-smoke-check -n smoke-tests
+kubectl logs job/nginx-smoke-check -n smoke-tests
+```
+
+---
+
+## Конфигурация через .env
+
+| Переменная | Описание | По умолчанию |
+|------------|----------|--------------|
+| `CLUSTER_PREFIX` | Префикс имён ВМ | `lab-k8s` |
+| `WORKER_COUNT` | Количество worker-нод | `2` |
+| `VM_CPUS` | CPU на каждую ноду | `4` |
+| `VM_MEMORY_MB` | RAM на каждую ноду (MB) | `8192` |
+| `PRIVATE_NETWORK_PREFIX` | Подсеть host-only | `192.168.56` |
+| `MASTER_PRIVATE_IP` | IP master-ноды | `192.168.56.10` |
+| `MASTER_SSH_PORT` | Порт SSH master (host) | `2232` |
+| `MASTER_API_PORT` | Порт Kubernetes API | `6443` |
+| `MASTER_DASHBOARD_PORT` | Порт Dashboard | `30443` |
+| `KUBERNETES_VERSION` | Версия Kubernetes | `1.34` |
+| `POD_CIDR` | Pod-сеть (Calico) | `10.244.0.0/16` |
+
+---
+
+## Где смотреть Dashboard
+
+Dashboard доступен по адресу:
+
+`https://localhost:30443`
+
+Токен можно получить:
+
+```powershell
+vagrant ssh lab-k8s-master -- kubectl -n kubernetes-dashboard create token admin-user
+```
+
+Или через PowerShell:
+
+```powershell
+vagrant ssh lab-k8s-master -c "sudo KUBECONFIG=/etc/kubernetes/admin.conf kubectl -n kubernetes-dashboard create token admin-user"
+```
+
+---
+
+## Остановка и удаление кластера
+
+```powershell
+# Остановить (сохранить состояние)
+.\proxy-launch.bat --halt
+
+# Удалить полностью
+.\proxy-launch.bat --destroy
+
+# Статус ВМ
+.\proxy-launch.bat --status
+```
+
+---
+
+## Timeline: Дорожная карта Stage 2
+
+```mermaid
+timeline
+    title Stage 2 Roadmap
+    section Completed
+      SSH-ключи и .env : завершено
+      Post-bootstrap автоматизация : завершено
+      Smoke-тесты и валидация : завершено
+    section Next
+      Учебные комментарии : in_progress
+      Packer / golden image : backlog
+      NSIS-wizard / Launcher : backlog
+```
 
 ---
 
 ## Что читать дальше
 
-- [README](K:\repositories\git\ipr\crm\README.md)
-- [Stage 1 README](K:\repositories\git\ipr\crm\stage1\README.md)
-- [Архитектура](K:\repositories\git\ipr\crm\docs\architecture.md)
-- [Быстрый старт](K:\repositories\git\ipr\crm\docs\quickstart.md)
+- [README](../README.md)
+- [Stage 1 README](../stage1/README.md)
+- [Архитектура](../docs/architecture.md)
+- [Быстрый старт](../docs/quickstart.md)
+- [Устранение неисправностей](../docs/troubleshooting.md)
