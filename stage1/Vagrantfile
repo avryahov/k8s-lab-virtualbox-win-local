@@ -1,0 +1,203 @@
+# =============================================================================
+# Vagrantfile — Stage 1: «Прямой в лоб»
+# =============================================================================
+#
+# ЧТО ЗДЕСЬ ПРОИСХОДИТ:
+#   Vagrant читает этот файл и создаёт три виртуальные машины в VirtualBox:
+#     - k8s-master  (управляющая нода Kubernetes, IP 192.168.56.10)
+#     - k8s-worker1 (рабочая нода #1,           IP 192.168.56.11)
+#     - k8s-worker2 (рабочая нода #2,           IP 192.168.56.12)
+#
+# ЗАЧЕМ ТРИ МАШИНЫ:
+#   Kubernetes — это кластер. Одна машина управляет (master), остальные
+#   выполняют задачи (workers). Так работает настоящий production-кластер.
+#
+# КАК ЗАПУСТИТЬ:
+#   1. Открой PowerShell в папке stage1/
+#   2. Набери: vagrant up
+#   3. Жди 15–25 минут (скачивается образ Ubuntu + устанавливается K8s)
+#   4. Проверь: vagrant ssh k8s-master -- kubectl get nodes
+#
+# ЭТОТ ФАЙЛ — STAGE 1 (Учебный):
+#   - Всё хардкодом: IP, имена, версии — прямо здесь
+#   - Пользователь: vagrant, пароль: vagrant (стандарт Vagrant)
+#   - Никаких SSH-ключей, никаких переменных окружения
+#   - Цель: понять ЧТО происходит, не отвлекаясь на абстракции
+#
+# ЧИТАЙ ТАКЖЕ:
+#   - docs/technologies.md  — что такое Vagrant, VirtualBox, Kubernetes
+#   - docs/references.md    — книги и курсы для углублённого изучения
+# =============================================================================
+
+Vagrant.configure("2") do |config|
+
+  # ---------------------------------------------------------------------------
+  # БАЗОВЫЙ ОБРАЗ (BOX)
+  # ---------------------------------------------------------------------------
+  # Образ — это готовый «снимок» операционной системы. Vagrant скачивает его
+  # один раз (~1–2 ГБ) и использует как шаблон для всех машин.
+  #
+  # "bento/ubuntu-24.04" — Ubuntu 24.04 LTS (Noble Numbat), сборка от Bento.
+  # Почему bento? Это официально поддерживаемые образы от HashiCorp-сообщества,
+  # оптимизированные для Vagrant.
+  #
+  # Официальный список образов: https://app.vagrantup.com/boxes/search
+  config.vm.box = "bento/ubuntu-24.04"
+
+  # Таймаут загрузки ВМ в секундах (600 = 10 минут).
+  # Первый запуск может быть долгим: ОС инициализируется, сеть настраивается.
+  config.vm.boot_timeout = 600
+
+  # Отключаем автоматическое обновление образа (ускоряет запуск).
+  config.vm.box_check_update = false
+
+  # ---------------------------------------------------------------------------
+  # ОБЩИЕ НАСТРОЙКИ VIRTUALBOX
+  # ---------------------------------------------------------------------------
+  # Эти параметры применяются ко всем ВМ, если не переопределены ниже.
+  config.vm.provider "virtualbox" do |vb|
+    # Количество виртуальных процессоров.
+    # Kubernetes требует минимум 2 CPU на master-ноде.
+    vb.cpus = 2
+
+    # Оперативная память в мегабайтах (2048 = 2 ГБ).
+    # Минимум для стабильного K8s: 2 ГБ на каждую ноду.
+    # Если твой компьютер имеет 16 ГБ, можно поставить 4096 (4 ГБ).
+    vb.memory = 2048
+
+    # Имя группы в интерфейсе VirtualBox (удобно для навигации).
+    vb.customize ["modifyvm", :id, "--groups", "/k8s-stage1"]
+
+    # Отключаем аудио: нам оно не нужно, VirtualBox иногда выдаёт
+    # предупреждение если аудиодрайвер не найден.
+    vb.customize ["modifyvm", :id, "--audio", "none"]
+  end
+
+  # ---------------------------------------------------------------------------
+  # НОДА 1: MASTER (управляющая плоскость / Control Plane)
+  # ---------------------------------------------------------------------------
+  # Master-нода — «мозг» кластера. Здесь работают:
+  #   - kube-apiserver     (принимает все команды kubectl)
+  #   - kube-controller-manager (следит за состоянием кластера)
+  #   - kube-scheduler     (решает, на какой воркер запустить Pod)
+  #   - etcd               (база данных кластера, хранит всё состояние)
+  config.vm.define "k8s-master" do |master|
+
+    # Имя хоста внутри ОС (hostname).
+    # Kubernetes использует hostname для идентификации ноды в кластере.
+    master.vm.hostname = "k8s-master"
+
+    # Второй сетевой адаптер — внутренняя сеть хоста (host-only).
+    # ЗАЧЕМ: Kubernetes-компоненты общаются между нодами именно через
+    # этот адаптер. IP фиксированный — кластер не сломается при перезагрузке.
+    #
+    # Первый адаптер (NAT) Vagrant создаёт автоматически — он нужен
+    # для выхода в интернет (скачать образы контейнеров).
+    #
+    # СЕТЬ 192.168.56.0/24 — стандартная host-only сеть VirtualBox.
+    # /24 означает маску 255.255.255.0 (256 адресов: .1–.254).
+    master.vm.network "private_network", ip: "192.168.56.10"
+
+    # Проброс портов: порт хоста Windows → порт гостевой ВМ.
+    # После vagrant up можно подключиться: ssh vagrant@127.0.0.1 -p 2232
+    #
+    # guest: 22  — стандартный SSH-порт внутри ВМ
+    # host:  2232 — нестандартный порт на Windows (чтобы не конфликтовать
+    #               с основным SSH или другими ВМ)
+    master.vm.network "forwarded_port", guest: 22,   host: 2232, id: "ssh-master"
+
+    # Kubernetes API Server — используется kubectl с хоста Windows.
+    # Команда на Windows: $env:KUBECONFIG="путь\до\admin.conf"
+    master.vm.network "forwarded_port", guest: 6443, host: 6443, id: "k8s-api"
+
+    # Kubernetes Dashboard — веб-интерфейс кластера.
+    # После настройки: открой браузер → https://localhost:30443
+    master.vm.network "forwarded_port", guest: 30443, host: 30443, id: "dashboard"
+
+    master.vm.provider "virtualbox" do |vb|
+      # Master требует больше ресурсов: здесь работает etcd и control plane.
+      vb.memory = 3072  # 3 ГБ
+      vb.cpus   = 2
+      vb.name   = "k8s-stage1-master"
+    end
+
+    # Скрипт общей подготовки (устанавливает containerd, kubeadm, kubelet, kubectl).
+    # Запускается первым, от root, внутри ВМ.
+    master.vm.provision "shell", path: "../scripts/common.sh",
+      env: { "NODE_IP" => "192.168.56.10" }
+
+    # Скрипт инициализации master-ноды (kubeadm init + Calico CNI + Dashboard).
+    master.vm.provision "shell", path: "../scripts/master.sh",
+      env: {
+        "MASTER_IP"  => "192.168.56.10",
+        "POD_CIDR"   => "10.244.0.0/16"
+      }
+  end
+
+  # ---------------------------------------------------------------------------
+  # НОДА 2: WORKER 1 (первая рабочая нода)
+  # ---------------------------------------------------------------------------
+  # Worker-ноды — «руки» кластера. Здесь работают:
+  #   - kubelet            (агент, запускает Pod-ы на ноде)
+  #   - kube-proxy         (сетевые правила для Service-ов)
+  #   - containerd         (среда запуска контейнеров)
+  #   - твои приложения    (в виде Pod-ов)
+  config.vm.define "k8s-worker1" do |worker|
+
+    worker.vm.hostname = "k8s-worker1"
+    worker.vm.network "private_network", ip: "192.168.56.11"
+    worker.vm.network "forwarded_port", guest: 22, host: 2242, id: "ssh-worker1"
+
+    worker.vm.provider "virtualbox" do |vb|
+      vb.memory = 2048
+      vb.cpus   = 2
+      vb.name   = "k8s-stage1-worker1"
+    end
+
+    worker.vm.provision "shell", path: "../scripts/common.sh",
+      env: { "NODE_IP" => "192.168.56.11" }
+
+    # Скрипт присоединения к кластеру (kubeadm join).
+    # Ждёт появления файла join-command.sh, созданного master-ом.
+    worker.vm.provision "shell", path: "../scripts/worker.sh"
+  end
+
+  # ---------------------------------------------------------------------------
+  # НОДА 3: WORKER 2 (вторая рабочая нода)
+  # ---------------------------------------------------------------------------
+  config.vm.define "k8s-worker2" do |worker|
+
+    worker.vm.hostname = "k8s-worker2"
+    worker.vm.network "private_network", ip: "192.168.56.12"
+    worker.vm.network "forwarded_port", guest: 22, host: 2252, id: "ssh-worker2"
+
+    worker.vm.provider "virtualbox" do |vb|
+      vb.memory = 2048
+      vb.cpus   = 2
+      vb.name   = "k8s-stage1-worker2"
+    end
+
+    worker.vm.provision "shell", path: "../scripts/common.sh",
+      env: { "NODE_IP" => "192.168.56.12" }
+
+    worker.vm.provision "shell", path: "../scripts/worker.sh"
+  end
+
+end
+# =============================================================================
+# СТРУКТУРА СЕТИ:
+#
+#  Windows (хост)
+#  ├── VirtualBox Host-Only Network (192.168.56.0/24)
+#  │   ├── k8s-master   192.168.56.10   ← управление кластером
+#  │   ├── k8s-worker1  192.168.56.11   ← рабочая нода
+#  │   └── k8s-worker2  192.168.56.12   ← рабочая нода
+#  │
+#  └── Порты на localhost (127.0.0.1):
+#      ├── :2232 → master SSH
+#      ├── :6443 → Kubernetes API
+#      └── :30443 → Dashboard HTTPS
+#
+#  Внутри кластера:
+#  └── Pod-сеть: 10.244.0.0/16 (Calico CNI, VXLAN-туннели)
+# =============================================================================
