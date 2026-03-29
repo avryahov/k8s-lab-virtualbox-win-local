@@ -1,143 +1,187 @@
-# Архитектура кластера
+# Архитектура Stage 1
+
+## Общая идея
+
+`stage1` построен как учебный сценарий из двух больших фаз:
+
+1. базовый bootstrap кластера;
+2. финальная post-bootstrap проверка и настройка.
+
+Это сделано специально:
+
+- ученик видит, что кластер и дополнительные сервисы — не одно и то же;
+- можно отдельно диагностировать проблемы bootstrap и проблемы финальной настройки;
+- Dashboard не мешает базовому подъёму master и worker-нод.
+
+---
 
 ## Топология
 
+```text
+Windows 11 (host)
+└── VirtualBox
+    ├── k8s-master   192.168.56.10
+    ├── k8s-worker1  192.168.56.11
+    └── k8s-worker2  192.168.56.12
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  Windows 11 Home (host)                                     │
-│                                                             │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │  VirtualBox                                         │   │
-│  │                                                     │   │
-│  │  ┌──────────────────────┐   private_network         │   │
-│  │  │  lab-k8s-master      │   192.168.56.0/24         │   │
-│  │  │  192.168.56.10       │◄──────────────────────┐  │   │
-│  │  │  control-plane       │                       │  │   │
-│  │  │  4 CPU / 8 GB RAM    │                       │  │   │
-│  │  └──────────────────────┘                       │  │   │
-│  │                                                 │  │   │
-│  │  ┌──────────────────────┐                       │  │   │
-│  │  │  lab-k8s-worker1     │───────────────────────┤  │   │
-│  │  │  192.168.56.11       │                       │  │   │
-│  │  │  4 CPU / 8 GB RAM    │                       │  │   │
-│  │  └──────────────────────┘                       │  │   │
-│  │                                                 │  │   │
-│  │  ┌──────────────────────┐                       │  │   │
-│  │  │  lab-k8s-worker2     │───────────────────────┘  │   │
-│  │  │  192.168.56.12       │                          │   │
-│  │  │  4 CPU / 8 GB RAM    │                          │   │
-│  │  └──────────────────────┘                          │   │
-│  └─────────────────────────────────────────────────────┘   │
-│                                                             │
-│  Port forwarding (NAT):                                     │
-│  127.0.0.1:2232  →  master:22     (SSH)                    │
-│  127.0.0.1:6443  →  master:6443   (Kubernetes API)         │
-│  127.0.0.1:30443 →  master:30443  (Dashboard / NodePort)   │
-└─────────────────────────────────────────────────────────────┘
-```
+
+Проброс портов на host:
+
+- `2232` → SSH master
+- `2242` → SSH worker1
+- `2252` → SSH worker2
+- `6443` → Kubernetes API
+- `30443` → Kubernetes Dashboard
 
 ---
 
-## Компоненты стека
+## Порядок этапов
 
-| Слой | Компонент | Версия |
-|---|---|---|
-| ОС | Ubuntu | 22.04 LTS (jammy) |
-| Container runtime | containerd | latest (Docker repo) |
-| Cgroup driver | systemd | — |
-| Bootstrap | kubeadm | 1.34.x |
-| Node agent | kubelet | 1.34.x |
-| CLI | kubectl | 1.34.x |
-| CNI | Flannel | latest release |
-| Pod CIDR | — | 10.244.0.0/16 |
+### Этап 1. `vagrant up`
 
----
+Во время `vagrant up` происходит:
 
-## Сеть
+1. создание трёх ВМ;
+2. выполнение `common.sh` на всех нодах;
+3. выполнение `master.sh` на master;
+4. выполнение `worker.sh` на worker-нодаx.
 
-### Адресация нод
+Результат этапа:
 
-Каждая нода получает IP из `private_network`. Адреса фиксированы через `.env`.
+- master уже инициализирован;
+- worker-ноды уже присоединились;
+- кластер существует как Kubernetes-кластер.
 
-| Нода | Private IP | Назначение |
-|---|---|---|
-| master | `192.168.56.10` | control-plane API, etcd |
-| worker1 | `192.168.56.11` | рабочая нагрузка |
-| worker2 | `192.168.56.12` | рабочая нагрузка |
+### Этап 2. `run-post-bootstrap.ps1`
 
-### Проброс портов с хоста
+После этого выполняется host-side сценарий:
 
-| Host (localhost) | Guest | Назначение |
-|---|---|---|
-| `2232` | master:22 | SSH → master |
-| `2242` | worker1:22 | SSH → worker1 |
-| `2252` | worker2:22 | SSH → worker2 |
-| `6443` | master:6443 | Kubernetes API server |
-| `30443` | master:30443 | NodePort / Dashboard |
+1. проверка регистрации нод;
+2. запуск `finalize-cluster.sh`;
+3. проверка и ожидание Calico;
+4. применение smoke-манифеста;
+5. ожидание успешного smoke-теста;
+6. запуск `install-dashboard.sh`.
 
-### Почему private_network, а не bridged?
+Результат этапа:
 
-`private_network` обеспечивает:
-- Воспроизводимые фиксированные IP на любой машине
-- Изоляцию от внешней сети (нет конфликтов с DHCP роутера)
-- Корректный `--node-ip` для kubelet (не `10.0.2.15` от NAT-адаптера)
-
-Bridged-режим (`BRIDGE_ADAPTER=`) добавляет третий адаптер для прямого доступа из внешней сети (например, для студентов через VPN/Keenetic).
+- кластер не просто существует, а подтверждён как рабочий;
+- Dashboard уже поднимается как финальное удобство;
+- в браузере можно увидеть и ноды, и тестовый проект.
 
 ---
 
-## Provisioning
+## Роли основных скриптов
 
-### Последовательность при `vagrant up`
+### `stage1/Vagrantfile`
 
-```
-1. Vagrantfile читает .env
-2. PowerShell: generate-node-key.ps1 для каждой ноды
-3. VirtualBox: создание ВМ (master → workers)
-4. На каждой ВМ:
-   └── common.sh
-       ├── hostname + /etc/hosts
-       ├── swap off
-       ├── kernel modules (overlay, br_netfilter)
-       ├── sysctl (ip_forward, bridge-nf-call)
-       ├── containerd + systemd cgroup
-       ├── kubelet (--node-ip=<private_ip>)
-       └── SSH authorized_keys
-5. На master:
-   └── master.sh
-       ├── kubeadm init --apiserver-advertise-address=192.168.56.10
-       ├── kubeconfig → /home/vagrant/.kube/config
-       ├── kubeadm token create → join-command.sh
-       └── kubectl apply flannel CNI
-6. На каждом worker:
-   └── worker.sh
-       ├── ждёт join-command.sh (до 10 мин)
-       └── kubeadm join
-```
+Отвечает за:
 
-### Идемпотентность
+- описание трёх машин;
+- сеть и порты;
+- уникальный VirtualBox-префикс;
+- post-destroy очистку хвостов;
+- запуск provisioning-скриптов в правильном порядке.
 
-Все скрипты защищены от повторного выполнения:
-- `master.sh` — проверяет `/etc/kubernetes/admin.conf`
-- `worker.sh` — проверяет `/etc/kubernetes/kubelet.conf`
-- `master.sh` Flannel — проверяет наличие DaemonSet `kube-flannel-ds`
+### `stage1/scripts/common.sh`
 
-### SSH-ключи
+Отвечает за общую подготовку всех нод:
 
-`generate-node-key.ps1` создаёт `ed25519` ключ для каждой ВМ в `.vagrant/node-keys/`.
-Windows требует строгих прав доступа на приватный ключ — скрипт устанавливает их через `icacls`.
-`common.sh` добавляет публичный ключ в `authorized_keys` пользователя `vagrant`.
+- swap;
+- модули ядра;
+- `sysctl`;
+- `containerd`;
+- `kubeadm`, `kubelet`, `kubectl`;
+- `--node-ip`.
+
+### `stage1/scripts/master.sh`
+
+Отвечает за базовый bootstrap master:
+
+- `kubeadm init`;
+- подготовку kubeconfig;
+- создание `join-command.sh`.
+
+### `stage1/scripts/worker.sh`
+
+Отвечает за присоединение worker-ноды:
+
+- ожидание `join-command.sh`;
+- выполнение `kubeadm join`.
+
+### `stage1/scripts/finalize-cluster.sh`
+
+Отвечает за post-bootstrap сетевую финализацию:
+
+- ожидание всех нод;
+- проверку и применение Calico;
+- ожидание `Ready`-состояния нод;
+- ожидание Pod-ов Calico.
+
+### `stage1/scripts/install-dashboard.sh`
+
+Отвечает только за Dashboard:
+
+- установку Helm при необходимости;
+- установку Dashboard chart;
+- перевод сервиса в `NodePort`;
+- создание `admin-user`;
+- вывод токена и URL.
+
+### `stage1/scripts/run-post-bootstrap.ps1`
+
+Это host-side оркестратор финального этапа.
+Именно его ученик запускает второй командой после `vagrant up`.
 
 ---
 
-## Ресурсы
+## Почему используется smoke-тест
 
-По умолчанию каждая ВМ получает `4 CPU / 8 GB RAM`.
-Для ноутбука с 16 GB RAM можно снизить до `2 CPU / 4096 MB`:
+Один только `kubectl get nodes` ещё не доказывает, что кластер реально пригоден для работы.
 
-```
-VM_CPUS=2
-VM_MEMORY_MB=4096
-```
+Поэтому в корне проекта есть:
 
-Минимально рабочий кластер: master `2 CPU / 2048 MB`, workers `2 CPU / 2048 MB`.
+`smoke-tests/nginx-smoke.yaml`
+
+Он проверяет сразу несколько уровней:
+
+- scheduler может разместить Pod-ы;
+- Service работает;
+- DNS внутри кластера работает;
+- Pod-сеть между нодами работает;
+- приложение реально отвечает на HTTP-запрос.
+
+---
+
+## Почему Dashboard идёт после smoke-теста
+
+Потому что правильный учебный приоритет такой:
+
+1. поднять ноды;
+2. собрать кластер;
+3. проверить сеть;
+4. проверить простое приложение;
+5. только потом ставить веб-интерфейс.
+
+Если делать наоборот, ученик может перепутать:
+
+- что является основой кластера;
+- а что является дополнительным сервисом удобства.
+
+---
+
+## Логика `destroy`
+
+После `vagrant destroy -f` сценарий должен вернуть `stage1` в чистое состояние.
+
+Очищаются:
+
+- ВМ текущего экземпляра `stage1`;
+- orphan-хвосты только по exact-name;
+- `join-command.sh`;
+- локальный `.vagrant`;
+- токен экземпляра кластера;
+- зафиксированный пул host-портов;
+- временные runtime-файлы текущего учебного запуска.
+
+Это нужно, чтобы следующий запуск не упирался в мусор от предыдущего кластера.

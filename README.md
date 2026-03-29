@@ -1,169 +1,142 @@
 # k8s-vagrant-lab
 
-Воспроизводимый локальный Kubernetes-кластер на Windows 11 Home + VirtualBox + Vagrant.
+Локальный учебный Kubernetes-стенд на Windows 11 Home + VirtualBox + Vagrant.
 
-**Состав:** 1 control-plane + 2 workers · Ubuntu 22.04 · containerd · kubeadm · Flannel CNI
+Проект устроен по этапам:
 
----
-
-## Требования
-
-| Инструмент | Минимальная версия | Установка |
-|---|---|---|
-| VirtualBox | 7.0 | virtualbox.org |
-| Vagrant | 2.4 | vagrantup.com |
-| PowerShell | 5.1 (встроен) | Windows 11 |
-| ssh-keygen | любая | Git for Windows или OpenSSH |
-
-> Windows 11 Home поддерживается полностью. Hyper-V отключать не нужно — VirtualBox 7 работает рядом с Hyper-V через режим совместимости.
+- `stage1` — учебный сценарий с максимально прозрачной логикой;
+- `stage2` — следующий уровень автоматизации и упаковки;
+- `docs/` — справочные и учебные материалы по запуску, архитектуре и диагностике.
 
 ---
 
-## Быстрый старт
+## Что важно знать сразу
+
+Если цель — поднять кластер руками, понять его шаги и быстро проверить его в браузере, начинать нужно со `stage1`.
+
+Именно там сейчас подтверждён рабочий сценарий:
+
+1. `vagrant up`
+2. `run-post-bootstrap.ps1`
+3. вход в Dashboard и проверка smoke-проекта
+
+---
+
+## Самый короткий запуск Stage 1
 
 ```powershell
-# 1. Клонировать репозиторий
-git clone <repo-url> k8s-vagrant-lab
-cd k8s-vagrant-lab
-
-# 2. Создать рабочий .env из шаблона
-Copy-Item .env.example .env
-# Отредактировать при необходимости (порты, сеть, ресурсы)
-
-# 3. Поднять кластер (первый раз ~15-20 мин)
+cd K:\repositories\git\ipr\crm\stage1
 vagrant up
-
-# 4. Проверить состояние нод
-vagrant ssh lab-k8s-master -- kubectl get nodes -o wide
+powershell -ExecutionPolicy Bypass -File .\scripts\run-post-bootstrap.ps1
 ```
 
-Подробный разбор — в [docs/quickstart.md](docs/quickstart.md).
-
----
-
-## Архитектура кластера
-
-```
-Windows 11 (host)
-├── VirtualBox
-│   ├── lab-k8s-master  192.168.56.10  (control-plane)
-│   ├── lab-k8s-worker1 192.168.56.11  (worker)
-│   └── lab-k8s-worker2 192.168.56.12  (worker)
-│
-└── Port forwarding (host → guest)
-    ├── localhost:2232 → master:22    (SSH)
-    ├── localhost:6443 → master:6443  (Kubernetes API)
-    └── localhost:30443 → master:30443 (Dashboard / NodePort)
-```
-
-Сеть `private_network (192.168.56.0/24)` — стабильная внутренняя адресация.
-Bridged-адаптер опционален через `BRIDGE_ADAPTER` в `.env`.
-
----
-
-## Структура репозитория
-
-```
-.
-├── Vagrantfile                  # Главный конфиг — читает .env, управляет ВМ
-├── .env.example                 # Шаблон конфигурации (копировать в .env)
-├── .gitignore
-├── scripts/
-│   ├── common.sh                # Все ноды: containerd, kubelet, kubeadm, kubectl
-│   ├── master.sh                # Control-plane: kubeadm init, Flannel CNI
-│   ├── worker.sh                # Workers: ожидание join-command, kubeadm join
-│   ├── generate-node-key.ps1    # Windows: генерация ed25519 SSH-ключей
-│   └── cleanup-node-key.ps1     # Windows: удаление ключей после vagrant destroy
-├── docs/
-│   ├── quickstart.md            # Пошаговая инструкция с нуля
-│   ├── architecture.md          # Устройство кластера и сети
-│   └── troubleshooting.md       # Частые проблемы и их решения
-└── CLAUDE.md                    # Правила работы ИИ-ассистента в этом репо
-```
-
----
-
-## Управление кластером
+Или одной командой:
 
 ```powershell
-# Статус ВМ
-vagrant status
+cd K:\repositories\git\ipr\crm\stage1
+.\launch.bat
+```
 
-# Подключение к нодам
-vagrant ssh lab-k8s-master
-vagrant ssh lab-k8s-worker1
-vagrant ssh lab-k8s-worker2
+После этого:
 
-# Остановить (без удаления данных)
-vagrant halt
+- открой `https://localhost:30443`;
+- возьми токен из вывода второго скрипта;
+- в Dashboard проверь 3 ноды;
+- в namespace `smoke-tests` проверь тестовый `nginx`-проект.
 
-# Запустить снова
-vagrant up
+---
 
-# Полное удаление
+## Что именно поднимается
+
+Учебный `stage1` создаёт:
+
+- `k8s-master`
+- `k8s-worker1`
+- `k8s-worker2`
+
+Сетевые параметры:
+
+- `192.168.56.10` — master
+- `192.168.56.11` — worker1
+- `192.168.56.12` — worker2
+
+Основные проброшенные порты:
+
+- `2232` — SSH master
+- `2242` — SSH worker1
+- `2252` — SSH worker2
+- `6443` — Kubernetes API
+- `30443` — Kubernetes Dashboard
+
+---
+
+## Почему запуск разделён на 2 команды
+
+Потому что проект учебный, и здесь важно показать ученику два разных слоя:
+
+1. как поднимается сам кластер;
+2. как поверх него уже добавляются сеть, smoke-проверка и Dashboard.
+
+Поэтому:
+
+- `vagrant up` создаёт и собирает базовый кластер;
+- `run-post-bootstrap.ps1` завершает сценарий в правильном порядке:
+  - Calico;
+  - smoke-тест;
+  - Dashboard.
+
+---
+
+## Как проверить, что всё действительно работает
+
+### В терминале
+
+```powershell
+vagrant ssh k8s-master -c "sudo KUBECONFIG=/etc/kubernetes/admin.conf kubectl get nodes -o wide"
+vagrant ssh k8s-master -c "sudo KUBECONFIG=/etc/kubernetes/admin.conf kubectl get pods -A -o wide"
+```
+
+### В браузере
+
+Открой:
+
+`https://localhost:30443`
+
+Там должны быть:
+
+- 3 ноды;
+- Pod-ы Dashboard;
+- namespace `smoke-tests`;
+- `nginx-smoke`;
+- завершившийся `nginx-smoke-check`.
+
+---
+
+## Полный сброс
+
+Если нужно начать заново:
+
+```powershell
+cd K:\repositories\git\ipr\crm\stage1
 vagrant destroy -f
+vagrant up
+powershell -ExecutionPolicy Bypass -File .\scripts\run-post-bootstrap.ps1
 ```
 
----
+`stage1` после `destroy` должен чистить:
 
-## Диагностика кластера
-
-```bash
-# Все команды выполняются на master после vagrant ssh lab-k8s-master
-
-# Состояние нод
-kubectl get nodes -o wide
-
-# Все поды во всех namespace
-kubectl get pods -A
-
-# Статус системных сервисов
-systemctl status kubelet --no-pager
-systemctl status containerd --no-pager
-
-# Логи kubelet
-journalctl -u kubelet -n 50 --no-pager
-```
-
----
-
-## Конфигурация (.env)
-
-Параметры можно менять в `.env` без редактирования `Vagrantfile`.
-Полный список с описаниями — в `.env.example`.
-
-Ключевые переменные:
-
-| Переменная | По умолчанию | Описание |
-|---|---|---|
-| `CLUSTER_PREFIX` | `lab-k8s` | Префикс имён ВМ и hostname |
-| `VM_CPUS` | `4` | Число CPU на каждую ВМ |
-| `VM_MEMORY_MB` | `8192` | ОЗУ на каждую ВМ (МБ) |
-| `WORKER_COUNT` | `2` | Количество worker-нод |
-| `KUBERNETES_VERSION` | `1.34` | Версия Kubernetes |
-| `PRIVATE_NETWORK_PREFIX` | `192.168.56` | Подсеть кластера |
-| `BRIDGE_ADAPTER` | _(пусто)_ | Bridged-адаптер (опционально) |
-
-> Если нужно запустить второй независимый кластер — измените `CLUSTER_PREFIX` и `PRIVATE_NETWORK_PREFIX` чтобы избежать конфликтов.
-
----
-
-## SSH-ключи
-
-При `vagrant up` автоматически генерируются ed25519 ключи в `.vagrant/node-keys/` (папка исключена из git).
-При `vagrant destroy` ключи удаляются.
-Это управляется через PowerShell-скрипты в `scripts/`.
-
-Для прямого SSH (без vagrant):
-
-```powershell
-ssh -i .vagrant\node-keys\lab-k8s-master.ed25519 -p 2232 vagrant@127.0.0.1
-```
+- локальный `.vagrant`;
+- `join-command.sh`;
+- токен экземпляра кластера;
+- пул host-портов;
+- временные runtime-хвосты текущего учебного запуска.
 
 ---
 
 ## Документация
 
-- [Быстрый старт](docs/quickstart.md)
-- [Архитектура](docs/architecture.md)
-- [Устранение неисправностей](docs/troubleshooting.md)
+- [Stage 1 README](K:\repositories\git\ipr\crm\stage1\README.md)
+- [Быстрый старт](K:\repositories\git\ipr\crm\docs\quickstart.md)
+- [Архитектура](K:\repositories\git\ipr\crm\docs\architecture.md)
+- [Устранение неисправностей](K:\repositories\git\ipr\crm\docs\troubleshooting.md)
+- [Список литературы и источников](K:\repositories\git\ipr\crm\docs\references.md)
