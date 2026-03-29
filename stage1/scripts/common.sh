@@ -220,8 +220,9 @@ mkdir -p /etc/apt/keyrings
 
 # Скачиваем GPG-ключ и сохраняем в двоичном формате (.gpg).
 # --dearmor: конвертирует ASCII-armored PGP-ключ в бинарный формат.
+# --yes: разрешает перезаписать уже существующий keyring при повторном provision без интерактивного вопроса.
 curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.34/deb/Release.key \
-  | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+  | gpg --dearmor --yes -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 chmod 644 /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 
 # Добавляем строку репозитория в sources.list.d/.
