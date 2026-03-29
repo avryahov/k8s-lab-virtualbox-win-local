@@ -9,29 +9,115 @@
 
 Это сделано специально:
 
-- ученик видит, что кластер и дополнительные сервисы — не одно и то же;
+- ученик видит, что кластер и дополнительные сервисы не одно и то же;
 - можно отдельно диагностировать проблемы bootstrap и проблемы финальной настройки;
 - Dashboard не мешает базовому подъёму master и worker-нод.
 
 ---
 
-## Топология
+## C1: Контекст Stage 1
 
-```text
-Windows 11 (host)
-└── VirtualBox
-    ├── k8s-master   192.168.56.10
-    ├── k8s-worker1  192.168.56.11
-    └── k8s-worker2  192.168.56.12
+```mermaid
+flowchart LR
+    student["Ученик"]
+    host["Windows 11 Host"]
+    vagrant["Vagrant"]
+    vbox["VirtualBox"]
+    cluster["Stage 1 Cluster"]
+    dashboard["Dashboard"]
+    hostkubectl["Windows kubectl"]
+    docs["Документация"]
+
+    student --> host
+    student --> docs
+    host --> vagrant
+    vagrant --> vbox
+    vbox --> cluster
+    host --> hostkubectl
+    hostkubectl --> cluster
+    cluster --> dashboard
 ```
 
-Проброс портов на host:
+---
 
-- `2232` -> SSH master
-- `2242` -> SSH worker1
-- `2252` -> SSH worker2
-- `6443` -> Kubernetes API
-- `30443` -> Kubernetes Dashboard
+## C2: Внутренние контейнеры Stage 1
+
+```mermaid
+flowchart TB
+    stage1["stage1/"]
+    vf["Vagrantfile"]
+    common["common.sh"]
+    master["master.sh"]
+    worker["worker.sh"]
+    finalize["finalize-cluster.sh"]
+    post["run-post-bootstrap.ps1"]
+    exportcfg["export-host-kubeconfig.ps1"]
+    helper["use-stage1-kubectl.ps1"]
+    dash["install-dashboard.sh"]
+    smoke["smoke-tests/nginx-smoke.yaml"]
+
+    stage1 --> vf
+    stage1 --> common
+    stage1 --> master
+    stage1 --> worker
+    stage1 --> finalize
+    stage1 --> post
+    stage1 --> exportcfg
+    stage1 --> helper
+    stage1 --> dash
+    post --> finalize
+    post --> smoke
+    post --> dash
+    post --> exportcfg
+```
+
+---
+
+## Топология
+
+```mermaid
+flowchart TB
+    host["Windows 11 Host"]
+    master["k8s-master\n192.168.56.10"]
+    worker1["k8s-worker1\n192.168.56.11"]
+    worker2["k8s-worker2\n192.168.56.12"]
+
+    host -->|"2232 / SSH"| master
+    host -->|"2242 / SSH"| worker1
+    host -->|"2252 / SSH"| worker2
+    host -->|"6443 / API"| master
+    host -->|"30443 / Dashboard"| master
+    master --- worker1
+    master --- worker2
+```
+
+---
+
+## Flow: Подъём кластера
+
+```mermaid
+flowchart TD
+    up["vagrant up"]
+    common["common.sh на всех нодах"]
+    init["master.sh -> kubeadm init"]
+    join["worker.sh -> kubeadm join"]
+    nodes["Все 3 ноды зарегистрированы"]
+    finalize["finalize-cluster.sh"]
+    smoke["Smoke-тест"]
+    dash["install-dashboard.sh"]
+    export["Экспорт host kubeconfig"]
+    done["Готовый stage1"]
+
+    up --> common
+    common --> init
+    init --> join
+    join --> nodes
+    nodes --> finalize
+    finalize --> smoke
+    smoke --> dash
+    dash --> export
+    export --> done
+```
 
 ---
 
@@ -49,7 +135,7 @@ Windows 11 (host)
 Результат этапа:
 
 - master уже инициализирован;
-- worker-нодЫ уже присоединились;
+- worker-ноды уже присоединились;
 - кластер существует как Kubernetes-кластер.
 
 ### Этап 2. `run-post-bootstrap.ps1`
@@ -129,11 +215,6 @@ Windows 11 (host)
 - создание `admin-user`;
 - вывод токена и URL.
 
-### `stage1/scripts/run-post-bootstrap.ps1`
-
-Это host-side оркестратор финального этапа.
-Именно его ученик запускает второй командой после `vagrant up`.
-
 ### `stage1/scripts/export-host-kubeconfig.ps1`
 
 Этот скрипт:
@@ -149,6 +230,48 @@ Windows 11 (host)
 - устанавливает `KUBECONFIG` в текущей PowerShell-сессии;
 - позволяет сразу использовать обычный Windows `kubectl`;
 - помогает ученику понять, как работает переменная окружения `KUBECONFIG`.
+
+---
+
+## Flow: Логика `destroy`
+
+```mermaid
+flowchart TD
+    destroy["vagrant destroy -f"]
+    vm["Удаление VM текущего stage1"]
+    tails["Точечная очистка orphan-хвостов"]
+    runtime["Очистка .vagrant и runtime-state"]
+    join["Удаление join-command.sh"]
+    ports["Сброс токена и пула портов"]
+    clean["Чистое состояние"]
+
+    destroy --> vm
+    vm --> tails
+    tails --> runtime
+    runtime --> join
+    join --> ports
+    ports --> clean
+```
+
+---
+
+## Timeline: Эволюция сценария
+
+```mermaid
+timeline
+    title Эволюция Stage 1
+    section Bootstrap
+      Подъём master : реализовано
+      Join двух worker : реализовано
+    section Validation
+      Calico после join : реализовано
+      Smoke-тест приложения : реализовано
+      Dashboard в самом конце : реализовано
+    section Host-side
+      Windows kubeconfig : реализовано
+      helper для KUBECONFIG : реализовано
+      расширенная визуализация docs : в работе
+```
 
 ---
 
@@ -180,11 +303,6 @@ Windows 11 (host)
 4. проверить простое приложение;
 5. только потом ставить веб-интерфейс.
 
-Так ученик не путает:
-
-- что является основой кластера;
-- а что является дополнительным сервисом удобства.
-
 ---
 
 ## Windows-side доступ после post-bootstrap
@@ -197,27 +315,3 @@ Windows 11 (host)
 2. host-side копия сохраняется как `stage1\kubeconfig-stage1.yaml`;
 3. адрес API приводится к `https://127.0.0.1:6443`, потому что именно этот порт проброшен на Windows-хост;
 4. ученик после этого может проверять кластер обычным `kubectl` уже из Windows.
-
-Зачем это сделано:
-
-- ученик видит два режима доступа к одному кластеру: через `vagrant ssh` и через Windows `kubectl`;
-- проще объяснять, что такое `kubeconfig`;
-- удобнее проводить ручные проверки `Nodes`, `Pods`, `Service`, `Job` и smoke-проекта.
-
----
-
-## Логика `destroy`
-
-После `vagrant destroy -f` сценарий должен вернуть `stage1` в чистое состояние.
-
-Очищаются:
-
-- ВМ текущего экземпляра `stage1`;
-- orphan-хвосты только по exact-name;
-- `join-command.sh`;
-- локальный `.vagrant`;
-- токен экземпляра кластера;
-- зафиксированный пул host-портов;
-- временные runtime-файлы текущего учебного запуска.
-
-Это нужно, чтобы следующий запуск не упирался в мусор от предыдущего кластера.
