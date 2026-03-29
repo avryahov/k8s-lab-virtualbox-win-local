@@ -21,6 +21,7 @@ LangString STR_DEPS_OK           ${LANG_ENGLISH} "✓ found"
 LangString STR_DEPS_MISSING      ${LANG_ENGLISH} "✗ not found"
 LangString STR_DEPS_WARN_VAGRANT ${LANG_ENGLISH} "Vagrant not found!$\n$\nPlease download and install it from:$\nhttps://developer.hashicorp.com/vagrant/downloads$\n$\nThen re-run this installer."
 LangString STR_DEPS_WARN_VBOX    ${LANG_ENGLISH} "VirtualBox not found!$\n$\nPlease download and install it from:$\nhttps://www.virtualbox.org/wiki/Downloads$\n$\nThen re-run this installer."
+LangString STR_DEPS_HINT         ${LANG_ENGLISH} "If anything is missing — install it and re-run this wizard."
 
 ; --- Cluster configuration ---
 LangString STR_CONFIG_TITLE      ${LANG_ENGLISH} "Cluster Configuration"

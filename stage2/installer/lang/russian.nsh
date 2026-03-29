@@ -26,6 +26,7 @@ LangString STR_DEPS_OK           ${LANG_RUSSIAN} "✓ найден"
 LangString STR_DEPS_MISSING      ${LANG_RUSSIAN} "✗ не найден"
 LangString STR_DEPS_WARN_VAGRANT ${LANG_RUSSIAN} "Vagrant не найден!$\n$\nСкачай и установи с сайта:$\nhttps://developer.hashicorp.com/vagrant/downloads$\n$\nПосле установки запусти мастер заново."
 LangString STR_DEPS_WARN_VBOX    ${LANG_RUSSIAN} "VirtualBox не найден!$\n$\nСкачай и установи с сайта:$\nhttps://www.virtualbox.org/wiki/Downloads$\n$\nПосле установки запусти мастер заново."
+LangString STR_DEPS_HINT         ${LANG_RUSSIAN} "Если что-то не найдено — установи недостающее и перезапусти этот мастер."
 
 ; --- Конфигурация кластера ---
 LangString STR_CONFIG_TITLE      ${LANG_RUSSIAN} "Настройка кластера"

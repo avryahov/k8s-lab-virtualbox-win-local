@@ -4,158 +4,132 @@
 ;
 ; ЧТО ТАКОЕ NSIS:
 ;   Nullsoft Scriptable Install System — бесплатная система создания инсталляторов
-;   для Windows. Используется для создания .exe-установщиков.
-;   Сайт: https://nsis.sourceforge.io/
+;   для Windows. Документация: https://nsis.sourceforge.io/Docs/
 ;
 ; КАК СКОМПИЛИРОВАТЬ:
-;   makensis k8s-lab.nsi
-;   → создаст k8s-lab-setup.exe в этой же папке
+;   makensis k8s-lab.nsi   →   k8s-lab-setup.exe
 ;
-; КАК УСТАНОВИТЬ NSIS:
-;   winget install NSIS.NSIS
-;   или скачай с https://nsis.sourceforge.io/Download
-;
-; СТРУКТУРА ЭТОГО ФАЙЛА:
-;   1. Заголовок (мета-информация об установщике)
-;   2. Подключение языковых файлов и плагинов
-;   3. Страницы визарда (по порядку)
-;   4. Секции установки (что именно делать)
-;   5. Вспомогательные функции
-;
-; ДОКУМЕНТАЦИЯ NSIS:
-;   https://nsis.sourceforge.io/Docs/
+; ОБЯЗАТЕЛЬНЫЙ ПОРЯДОК СЕКЦИЙ В NSIS MUI2:
+;   1. !include MUI2.nsh и другие библиотеки
+;   2. !define настройки MUI
+;   3. Var переменные
+;   4. !insertmacro MUI_PAGE_* и Page custom  ← страницы визарда
+;   5. !insertmacro MUI_LANGUAGE "..."        ← языки (ПОСЛЕ страниц!)
+;   6. !include "lang\*.nsh"                 ← строки (ПОСЛЕ языков!)
+;   7. Section / Function код
 ; =============================================================================
 
-; === РАЗДЕЛ 1: ЗАГОЛОВОК =====================================================
+; === 1. ЗАГОЛОВОК ============================================================
 
-; Имя продукта — отображается в заголовке окна и в Programs & Features
 Name "Kubernetes Cluster Lab"
-
-; Имя выходного файла
 OutFile "k8s-lab-setup.exe"
-
-; Иконка установщика (опционально, нужен .ico файл)
-; Icon "assets\k8s-logo.ico"
-
-; Каталог по умолчанию — куда будут скопированы файлы
 InstallDir "$DOCUMENTS\k8s-lab"
-
-; Запросить подтверждение при перезаписи существующей папки
 InstallDirRegKey HKCU "Software\K8sLab" "InstallDir"
-
-; Уровень сжатия (lzma = максимальное, bzip2 = быстрое)
 SetCompressor /SOLID lzma
 
-; Версия установщика (отображается в свойствах exe)
+; Мета-информация для свойств EXE-файла
 VIProductVersion "1.0.0.0"
 VIAddVersionKey "ProductName" "Kubernetes Cluster Lab"
 VIAddVersionKey "ProductVersion" "1.0.0"
+VIAddVersionKey "FileVersion" "1.0.0.0"
 VIAddVersionKey "FileDescription" "Kubernetes lab installer for Windows"
 VIAddVersionKey "LegalCopyright" "MIT License"
 
-; === РАЗДЕЛ 2: ПЛАГИНЫ И ЯЗЫКИ ===============================================
+; === 2. ПОДКЛЮЧЕНИЕ БИБЛИОТЕК ================================================
 
-; Modern UI 2 — современный интерфейс визарда (как у стандартных Windows-установщиков)
+; Modern UI 2 — внешний вид как у стандартных Windows-установщиков
 ; Документация: https://nsis.sourceforge.io/Docs/Modern%20UI%202/Readme.html
 !include "MUI2.nsh"
 
-; NSD — NSIS Dialog — для создания пользовательских страниц с полями ввода
+; nsDialogs — создание страниц с полями ввода
 ; Документация: https://nsis.sourceforge.io/NsDialogs_Usage
 !include "nsDialogs.nsh"
 
-; Логические операторы
+; Логические операторы (${If}, ${Else}, ${EndIf})
 !include "LogicLib.nsh"
 
-; Работа со строками
-!include "StrFunc.nsh"
-${StrStr}
+; === 3. НАСТРОЙКИ ВНЕШНЕГО ВИДА MUI =========================================
+; ВАЖНО: все !define MUI_* должны идти ДО !insertmacro MUI_LANGUAGE
 
-; Языковые файлы (должны идти ПОСЛЕ !include MUI2.nsh)
-; LangString позволяет задать строки на разных языках.
-; Во время работы программы используется текущий системный язык.
-!include "lang\russian.nsh"
-!include "lang\english.nsh"
+!define MUI_ABORTWARNING                  ; спрашивать подтверждение при отмене
+; Заголовочное изображение (опционально):
+; !define MUI_HEADERIMAGE
+; !define MUI_HEADERIMAGE_BITMAP "assets\banner.bmp"
 
-; Поддерживаемые языки (порядок определяет первый предложенный)
-!insertmacro MUI_LANGUAGE "Russian"
-!insertmacro MUI_LANGUAGE "English"
+; === 4. ПЕРЕМЕННЫЕ ===========================================================
 
-; === РАЗДЕЛ 3: НАСТРОЙКИ ВНЕШНЕГО ВИДА =======================================
-
-; Цветовая схема заголовка (чёрный текст, белый фон)
-!define MUI_HEADERIMAGE
-; !define MUI_HEADERIMAGE_BITMAP "assets\banner.bmp"  ; опционально
-!define MUI_ABORTWARNING
-!define MUI_ABORTWARNING_TEXT "Прервать установку?"
-
-; Кнопки навигации
-!define MUI_BUTTONTEXT_NEXT "Далее >"
-!define MUI_BUTTONTEXT_BACK "< Назад"
-!define MUI_BUTTONTEXT_CANCEL "Отмена"
-!define MUI_BUTTONTEXT_FINISH "Готово"
-
-; === РАЗДЕЛ 4: ПЕРЕМЕННЫЕ ====================================================
-
-; Переменные для хранения пользовательского ввода
 Var ClusterPrefix    ; Префикс имён ВМ (например: lab-k8s)
 Var WorkerCount      ; Количество воркеров (1–4)
-Var CpuCount         ; CPU на ВМ (1–8)
-Var RamMb            ; RAM в МБ (512–16384)
-Var SubnetPrefix     ; Первые три октета подсети (например: 192.168.56)
+Var CpuCount         ; CPU на ВМ
+Var RamMb            ; RAM в МБ
+Var SubnetPrefix     ; Первые три октета (например: 192.168.56)
 
-; Переменные для элементов диалога (поля ввода)
+; Дескрипторы элементов диалога
 Var hDialog
 Var hPrefixField
 Var hWorkersField
 Var hCpuField
 Var hRamField
 Var hSubnetField
-
-; Переменная для страницы проверки зависимостей
 Var hDepsDialog
-Var hVagrantStatus
-Var hVboxStatus
 
-; === РАЗДЕЛ 5: СТРАНИЦЫ ВИЗАРДА ==============================================
+; === 5. СТРАНИЦЫ ВИЗАРДА (обязательно ДО !insertmacro MUI_LANGUAGE) ==========
 ;
-; Порядок страниц: Welcome → Deps → License → Config → Dir → Summary → Install → Finish
-;
-; !insertmacro MUI_PAGE_* — стандартные страницы Modern UI
-; Page custom <функция> — пользовательская страница
+; Порядок отображения:
+;   Приветствие → Зависимости → Конфигурация → Папка → Сводка → Установка → Финиш
 
 ; Страница 1: Приветствие
 !insertmacro MUI_PAGE_WELCOME
 
-; Страница 2: Проверка зависимостей (кастомная)
+; Страница 2: Проверка зависимостей (пользовательская)
 Page custom DepsPageCreate DepsPageLeave
 
-; Страница 3: Лицензия
-!insertmacro MUI_PAGE_LICENSE "..\..\LICENSE"
-
-; Страница 4: Конфигурация кластера (кастомная)
+; Страница 3: Конфигурация кластера (пользовательская)
 Page custom ConfigPageCreate ConfigPageLeave
 
-; Страница 5: Выбор папки установки
+; Страница 4: Выбор папки установки
 !insertmacro MUI_PAGE_DIRECTORY
 
-; Страница 6: Сводка настроек (кастомная)
+; Страница 5: Сводка настроек (пользовательская)
 Page custom SummaryPageCreate SummaryPageLeave
 
-; Страница 7: Установка (прогресс)
+; Страница 6: Прогресс установки
 !insertmacro MUI_PAGE_INSTFILES
 
-; Страница 8: Завершение
-!define MUI_FINISHPAGE_RUN "$INSTDIR\launch.bat"
-!define MUI_FINISHPAGE_RUN_TEXT "Открыть папку проекта"
+; Страница 7: Завершение
 !define MUI_FINISHPAGE_SHOWREADME "$INSTDIR\README.md"
-!define MUI_FINISHPAGE_SHOWREADME_TEXT "Открыть README"
+!define MUI_FINISHPAGE_SHOWREADME_TEXT "Open README / Открыть README"
 !insertmacro MUI_PAGE_FINISH
 
-; === РАЗДЕЛ 6: СЕКЦИЯ УСТАНОВКИ ==============================================
+; Деинсталлятор
+!insertmacro MUI_UNPAGE_CONFIRM
+!insertmacro MUI_UNPAGE_INSTFILES
+
+; === 6. ЯЗЫКИ (обязательно ПОСЛЕ страниц, ДО LangString-файлов) ==============
+;
+; Порядок определяет язык по умолчанию: первый = предпочтительный.
+; MUI_LANGUAGE определяет константы LANG_RUSSIAN, LANG_ENGLISH и т.д.
+; Без этих констант LangString-файлы не компилируются.
+
+!insertmacro MUI_LANGUAGE "Russian"
+!insertmacro MUI_LANGUAGE "English"
+
+; === 7. СТРОКИ ИНТЕРФЕЙСА (обязательно ПОСЛЕ MUI_LANGUAGE) ===================
+;
+; Эти файлы содержат LangString определения вида:
+;   LangString STR_WELCOME_TITLE ${LANG_RUSSIAN} "Kubernetes Cluster Lab"
+;
+; LANG_RUSSIAN / LANG_ENGLISH определяются в шаге 6.
+; Порядок: сначала русский, потом английский (дублирует каждую строку).
+
+!include "lang\russian.nsh"
+!include "lang\english.nsh"
+
+; === 8. СЕКЦИЯ УСТАНОВКИ =====================================================
 
 Section "Kubernetes Lab" SecMain
 
-  ; Проверяем права администратора (нужны для Vagrant + VirtualBox)
+  ; Проверяем права администратора
   UserInfo::GetAccountType
   Pop $0
   ${If} $0 != "Admin"
@@ -163,40 +137,33 @@ Section "Kubernetes Lab" SecMain
     Abort
   ${EndIf}
 
-  ; Устанавливаем папку назначения
   SetOutPath "$INSTDIR"
 
+  ; --- Копирование файлов проекта ---
   DetailPrint "$(STR_INSTALL_COPY)"
-
-  ; Копируем файлы проекта (stage2/) в папку установки
-  ; File /r "../*.env.example"  ; .env.example
-  File /r "..\.env.example"
-  File /r "..\Vagrantfile"
-  File /r "..\scripts\*"
-  File /r "..\..\docs\*"
+  File "..\..\.env.example"
+  File "..\..\.gitignore"
+  File "..\..\Vagrantfile"
   CreateDirectory "$INSTDIR\scripts"
-  CreateDirectory "$INSTDIR\docs"
+  File /oname=scripts\common.sh "..\..\scripts\common.sh"
+  File /oname=scripts\master.sh "..\..\scripts\master.sh"
+  File /oname=scripts\worker.sh "..\..\scripts\worker.sh"
+  File /oname=scripts\generate-node-key.ps1 "..\..\scripts\generate-node-key.ps1"
+  File /oname=scripts\cleanup-node-key.ps1  "..\..\scripts\cleanup-node-key.ps1"
 
-  ; ------------------------------------------------------------------
-  ; Создаём .env из пользовательских настроек
-  ; ------------------------------------------------------------------
+  ; --- Создание .env из настроек пользователя ---
   DetailPrint "$(STR_INSTALL_CONFIG)"
-
-  ; Пишем .env файл с параметрами, которые ввёл пользователь
   FileOpen $0 "$INSTDIR\.env" w
-  FileWrite $0 "# Создано установщиком k8s-lab-setup.exe$\r$\n"
-  FileWrite $0 "# Дата: $(NSIS_BUILD_DATETIME)$\r$\n$\r$\n"
-  FileWrite $0 "# Именование кластера$\r$\n"
+  FileWrite $0 "# Kubernetes Cluster Lab — конфигурация$\r$\n"
+  FileWrite $0 "# Создано NSIS-визардом$\r$\n$\r$\n"
   FileWrite $0 "CLUSTER_PREFIX=$ClusterPrefix$\r$\n"
   FileWrite $0 "MASTER_VM_NAME=$ClusterPrefix-master$\r$\n"
   FileWrite $0 "MASTER_HOSTNAME=$ClusterPrefix-master$\r$\n$\r$\n"
-  FileWrite $0 "# Образ и ресурсы$\r$\n"
   FileWrite $0 "VM_BOX=bento/ubuntu-24.04$\r$\n"
   FileWrite $0 "VM_CPUS=$CpuCount$\r$\n"
   FileWrite $0 "VM_MEMORY_MB=$RamMb$\r$\n"
   FileWrite $0 "VM_BOOT_TIMEOUT=600$\r$\n"
   FileWrite $0 "WORKER_COUNT=$WorkerCount$\r$\n$\r$\n"
-  FileWrite $0 "# Сеть$\r$\n"
   FileWrite $0 "PRIVATE_NETWORK_PREFIX=$SubnetPrefix$\r$\n"
   FileWrite $0 "PRIVATE_NETWORK_GATEWAY=$SubnetPrefix.1$\r$\n"
   FileWrite $0 "MASTER_PRIVATE_IP=$SubnetPrefix.10$\r$\n"
@@ -212,73 +179,51 @@ Section "Kubernetes Lab" SecMain
   FileWrite $0 "WORKER2_PRIVATE_IP=$SubnetPrefix.12$\r$\n"
   FileWrite $0 "WORKER2_SSH_PORT=2252$\r$\n$\r$\n"
   FileWrite $0 "BRIDGE_ADAPTER=$\r$\n$\r$\n"
-  FileWrite $0 "# Kubernetes$\r$\n"
   FileWrite $0 "KUBERNETES_VERSION=1.34$\r$\n"
   FileWrite $0 "POD_CIDR=10.244.0.0/16$\r$\n"
   FileClose $0
 
-  ; ------------------------------------------------------------------
-  ; Генерируем SSH-ключи через PowerShell
-  ; ------------------------------------------------------------------
+  ; --- Генерация SSH-ключей ---
   DetailPrint "$(STR_INSTALL_KEYS)"
-
-  ; Создаём папку для ключей
   CreateDirectory "$INSTDIR\.vagrant\node-keys"
 
-  ; Генерируем ключи для master и воркеров
   nsExec::ExecToLog 'powershell.exe -ExecutionPolicy Bypass -File "$INSTDIR\scripts\generate-node-key.ps1" -NodeName "$ClusterPrefix-master" -KeyDirectory "$INSTDIR\.vagrant\node-keys"'
   Pop $0
 
   nsExec::ExecToLog 'powershell.exe -ExecutionPolicy Bypass -File "$INSTDIR\scripts\generate-node-key.ps1" -NodeName "$ClusterPrefix-worker1" -KeyDirectory "$INSTDIR\.vagrant\node-keys"'
   Pop $0
 
-  ${If} $WorkerCount >= "2"
-    nsExec::ExecToLog 'powershell.exe -ExecutionPolicy Bypass -File "$INSTDIR\scripts\generate-node-key.ps1" -NodeName "$ClusterPrefix-worker2" -KeyDirectory "$INSTDIR\.vagrant\node-keys"'
-    Pop $0
-  ${EndIf}
+  nsExec::ExecToLog 'powershell.exe -ExecutionPolicy Bypass -File "$INSTDIR\scripts\generate-node-key.ps1" -NodeName "$ClusterPrefix-worker2" -KeyDirectory "$INSTDIR\.vagrant\node-keys"'
+  Pop $0
 
-  ; ------------------------------------------------------------------
-  ; Запускаем vagrant up
-  ; ------------------------------------------------------------------
+  ; --- Запуск vagrant up ---
   DetailPrint "$(STR_INSTALL_VAGRANT)"
-
-  ; Запускаем vagrant up в папке проекта
-  ; nsExec::ExecToLog выводит вывод команды в Detail window
-  SetDetailsPrint textonly
-  DetailPrint "Выполняется: vagrant up (до 30 минут)..."
-  SetDetailsPrint listonly
-
   nsExec::ExecToLog 'cmd.exe /C "cd /d "$INSTDIR" && vagrant up"'
   Pop $0
 
   ${If} $0 != "0"
     MessageBox MB_OK|MB_ICONEXCLAMATION "$(STR_ERR_VAGRANT_FAIL)"
-    ; Не прерываем — пользователь увидит ошибку и может попробовать сам
   ${Else}
-    ; Сохраняем токен Dashboard в файл
-    nsExec::ExecToLog 'cmd.exe /C "cd /d "$INSTDIR" && vagrant ssh $ClusterPrefix-master --command "kubectl -n kubernetes-dashboard create token admin-user --duration=168h" > "$INSTDIR\dashboard-token.txt"'
+    ; Сохраняем Dashboard-токен
+    nsExec::ExecToLog 'cmd.exe /C "cd /d "$INSTDIR" && vagrant ssh $ClusterPrefix-master --command "kubectl -n kubernetes-dashboard create token admin-user --duration=168h" > "$INSTDIR\dashboard-token.txt" 2>&1"'
     DetailPrint "$(STR_INSTALL_DONE)"
   ${EndIf}
 
-  ; Запись в реестр для Programs & Features
+  ; Запись в реестр
   WriteRegStr HKCU "Software\K8sLab" "InstallDir" "$INSTDIR"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\K8sLab" \
     "DisplayName" "Kubernetes Cluster Lab"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\K8sLab" \
     "DisplayVersion" "1.0.0"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\K8sLab" \
-    "Publisher" "k8s-lab"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\K8sLab" \
     "UninstallString" '"$INSTDIR\uninstall.exe"'
-
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
 SectionEnd
 
-; === РАЗДЕЛ 7: СТРАНИЦА ПРОВЕРКИ ЗАВИСИМОСТЕЙ ================================
+; === 9. СТРАНИЦА: ПРОВЕРКА ЗАВИСИМОСТЕЙ ======================================
 
 Function DepsPageCreate
-  ; Создаём пользовательский диалог (страницу визарда)
   !insertmacro MUI_HEADER_TEXT "$(STR_DEPS_TITLE)" "$(STR_DEPS_SUBTITLE)"
 
   nsDialogs::Create 1018
@@ -287,89 +232,89 @@ Function DepsPageCreate
     Abort
   ${EndIf}
 
-  ; Проверяем Vagrant
-  nsDialogs::CreateControl STATIC ${WS_VISIBLE}|${WS_CHILD} 0 10 10 370 20 "$(STR_DEPS_VAGRANT):"
-  Pop $0
+  ; Заголовок
+  ${NSD_CreateLabel} 10 5 370 14 "$(STR_DEPS_SUBTITLE):"
 
-  ; Ищем vagrant.exe в PATH
-  SearchPath $1 vagrant.exe
-  ${If} $1 != ""
-    StrCpy $2 "$(STR_DEPS_OK)"
+  ; Строка: Vagrant
+  ${NSD_CreateLabel} 10 28 200 14 "$(STR_DEPS_VAGRANT):"
+  ; Проверяем Vagrant через nsExec
+  nsExec::ExecToStack 'cmd.exe /C "vagrant --version"'
+  Pop $0  ; exit code
+  Pop $1  ; output
+  ${If} $0 == "0"
+    ${NSD_CreateLabel} 215 28 155 14 "$(STR_DEPS_OK)"
   ${Else}
-    StrCpy $2 "$(STR_DEPS_MISSING)"
+    ${NSD_CreateLabel} 215 28 155 14 "$(STR_DEPS_MISSING)"
   ${EndIf}
 
-  nsDialogs::CreateControl STATIC ${WS_VISIBLE}|${WS_CHILD} 0 200 10 180 20 "$2"
-  Pop $hVagrantStatus
-
-  ; Проверяем VirtualBox
-  nsDialogs::CreateControl STATIC ${WS_VISIBLE}|${WS_CHILD} 0 10 35 370 20 "$(STR_DEPS_VBOX):"
-  Pop $0
-
-  SearchPath $3 VBoxManage.exe
-  ${If} $3 == ""
+  ; Строка: VirtualBox
+  ${NSD_CreateLabel} 10 48 200 14 "$(STR_DEPS_VBOX):"
+  nsExec::ExecToStack 'cmd.exe /C "VBoxManage --version"'
+  Pop $2
+  Pop $3
+  ${If} $2 == "0"
+    ${NSD_CreateLabel} 215 48 155 14 "$(STR_DEPS_OK)"
+  ${Else}
     ; Пробуем стандартный путь
     ${If} ${FileExists} "$PROGRAMFILES\Oracle\VirtualBox\VBoxManage.exe"
-      StrCpy $3 "$PROGRAMFILES\Oracle\VirtualBox\VBoxManage.exe"
+      ${NSD_CreateLabel} 215 48 155 14 "$(STR_DEPS_OK)"
+      StrCpy $2 "0"
+    ${Else}
+      ${NSD_CreateLabel} 215 48 155 14 "$(STR_DEPS_MISSING)"
     ${EndIf}
   ${EndIf}
 
-  ${If} $3 != ""
-    StrCpy $4 "$(STR_DEPS_OK)"
-  ${Else}
-    StrCpy $4 "$(STR_DEPS_MISSING)"
-  ${EndIf}
-
-  nsDialogs::CreateControl STATIC ${WS_VISIBLE}|${WS_CHILD} 0 200 35 180 20 "$4"
-  Pop $hVboxStatus
-
-  ; Пояснительный текст
-  nsDialogs::CreateControl STATIC ${WS_VISIBLE}|${WS_CHILD} 0 10 70 370 60 \
-    "Если что-то не найдено — установи недостающую программу и перезапусти мастер установки."
-  Pop $0
+  ; Подсказка
+  ${NSD_CreateLabel} 10 78 370 30 "$(STR_DEPS_HINT)"
 
   nsDialogs::Show
 FunctionEnd
 
 Function DepsPageLeave
-  ; Проверяем оба компонента — если нет хотя бы одного, предупреждаем
-  SearchPath $1 vagrant.exe
-  ${If} $1 == ""
-    MessageBox MB_YESNO|MB_ICONEXCLAMATION "$(STR_DEPS_WARN_VAGRANT)$\n$\nПродолжить без Vagrant?" IDYES +2
+  ; Проверяем Vagrant
+  nsExec::ExecToStack 'cmd.exe /C "vagrant --version"'
+  Pop $0
+  Pop $1
+  ${If} $0 != "0"
+    MessageBox MB_YESNO|MB_ICONEXCLAMATION "$(STR_DEPS_WARN_VAGRANT)" IDYES +2
     Abort
   ${EndIf}
 
-  SearchPath $2 VBoxManage.exe
-  ${If} $2 == ""
+  ; Проверяем VirtualBox
+  nsExec::ExecToStack 'cmd.exe /C "VBoxManage --version"'
+  Pop $0
+  Pop $1
+  ${If} $0 != "0"
     ${If} ${FileExists} "$PROGRAMFILES\Oracle\VirtualBox\VBoxManage.exe"
-      ; Нашли, OK
+      ; OK — найден в стандартном месте
     ${Else}
-      MessageBox MB_YESNO|MB_ICONEXCLAMATION "$(STR_DEPS_WARN_VBOX)$\n$\nПродолжить без VirtualBox?" IDYES +2
+      MessageBox MB_YESNO|MB_ICONEXCLAMATION "$(STR_DEPS_WARN_VBOX)" IDYES +2
       Abort
     ${EndIf}
   ${EndIf}
 FunctionEnd
 
-; === РАЗДЕЛ 8: СТРАНИЦА КОНФИГУРАЦИИ =========================================
+; === 10. СТРАНИЦА: КОНФИГУРАЦИЯ КЛАСТЕРА =====================================
 
 Function ConfigPageCreate
   !insertmacro MUI_HEADER_TEXT "$(STR_CONFIG_TITLE)" "$(STR_CONFIG_SUBTITLE)"
 
-  ; Устанавливаем значения по умолчанию
-  StrCmp $ClusterPrefix "" 0 +2
-  StrCpy $ClusterPrefix "lab-k8s"
-
-  StrCmp $WorkerCount "" 0 +2
-  StrCpy $WorkerCount "2"
-
-  StrCmp $CpuCount "" 0 +2
-  StrCpy $CpuCount "2"
-
-  StrCmp $RamMb "" 0 +2
-  StrCpy $RamMb "2048"
-
-  StrCmp $SubnetPrefix "" 0 +2
-  StrCpy $SubnetPrefix "192.168.56"
+  ; Значения по умолчанию
+  ${If} $ClusterPrefix == ""
+    StrCpy $ClusterPrefix "lab-k8s"
+  ${EndIf}
+  ${If} $WorkerCount == ""
+    StrCpy $WorkerCount "2"
+  ${EndIf}
+  ${If} $CpuCount == ""
+    StrCpy $CpuCount "2"
+  ${EndIf}
+  ${If} $RamMb == ""
+    StrCpy $RamMb "2048"
+  ${EndIf}
+  ${If} $SubnetPrefix == ""
+    StrCpy $SubnetPrefix "192.168.56"
+  ${EndIf}
 
   nsDialogs::Create 1018
   Pop $hDialog
@@ -378,66 +323,59 @@ Function ConfigPageCreate
   ${EndIf}
 
   ; Поле: Префикс
-  nsDialogs::CreateControl STATIC ${WS_VISIBLE}|${WS_CHILD} 0 10 10 230 14 "$(STR_CONFIG_PREFIX):"
-  Pop $0
-  nsDialogs::CreateControl EDIT ${WS_VISIBLE}|${WS_CHILD}|${WS_TABSTOP}|${WS_BORDER} 0 245 8 120 16 "$ClusterPrefix"
+  ${NSD_CreateLabel} 10 10 200 14 "$(STR_CONFIG_PREFIX):"
+  ${NSD_CreateText}  215 8  150 16 "$ClusterPrefix"
   Pop $hPrefixField
 
   ; Поле: Воркеры
-  nsDialogs::CreateControl STATIC ${WS_VISIBLE}|${WS_CHILD} 0 10 32 230 14 "$(STR_CONFIG_WORKERS):"
-  Pop $0
-  nsDialogs::CreateControl EDIT ${WS_VISIBLE}|${WS_CHILD}|${WS_TABSTOP}|${WS_BORDER} 0 245 30 120 16 "$WorkerCount"
+  ${NSD_CreateLabel} 10 32 200 14 "$(STR_CONFIG_WORKERS):"
+  ${NSD_CreateText}  215 30 150 16 "$WorkerCount"
   Pop $hWorkersField
 
   ; Поле: CPU
-  nsDialogs::CreateControl STATIC ${WS_VISIBLE}|${WS_CHILD} 0 10 54 230 14 "$(STR_CONFIG_CPU):"
-  Pop $0
-  nsDialogs::CreateControl EDIT ${WS_VISIBLE}|${WS_CHILD}|${WS_TABSTOP}|${WS_BORDER} 0 245 52 120 16 "$CpuCount"
+  ${NSD_CreateLabel} 10 54 200 14 "$(STR_CONFIG_CPU):"
+  ${NSD_CreateText}  215 52 150 16 "$CpuCount"
   Pop $hCpuField
 
   ; Поле: RAM
-  nsDialogs::CreateControl STATIC ${WS_VISIBLE}|${WS_CHILD} 0 10 76 230 14 "$(STR_CONFIG_RAM):"
-  Pop $0
-  nsDialogs::CreateControl EDIT ${WS_VISIBLE}|${WS_CHILD}|${WS_TABSTOP}|${WS_BORDER} 0 245 74 120 16 "$RamMb"
+  ${NSD_CreateLabel} 10 76 200 14 "$(STR_CONFIG_RAM):"
+  ${NSD_CreateText}  215 74 150 16 "$RamMb"
   Pop $hRamField
 
   ; Поле: Подсеть
-  nsDialogs::CreateControl STATIC ${WS_VISIBLE}|${WS_CHILD} 0 10 98 230 14 "$(STR_CONFIG_SUBNET):"
-  Pop $0
-  nsDialogs::CreateControl EDIT ${WS_VISIBLE}|${WS_CHILD}|${WS_TABSTOP}|${WS_BORDER} 0 245 96 120 16 "$SubnetPrefix"
+  ${NSD_CreateLabel} 10 98 200 14 "$(STR_CONFIG_SUBNET):"
+  ${NSD_CreateText}  215 96 150 16 "$SubnetPrefix"
   Pop $hSubnetField
 
   ; Подсказка
-  nsDialogs::CreateControl STATIC ${WS_VISIBLE}|${WS_CHILD} 0 10 125 360 20 "$(STR_CONFIG_TIP)"
-  Pop $0
+  ${NSD_CreateLabel} 10 126 370 20 "$(STR_CONFIG_TIP)"
 
   nsDialogs::Show
 FunctionEnd
 
 Function ConfigPageLeave
-  ; Читаем значения из полей ввода
   ${NSD_GetText} $hPrefixField  $ClusterPrefix
   ${NSD_GetText} $hWorkersField $WorkerCount
   ${NSD_GetText} $hCpuField     $CpuCount
   ${NSD_GetText} $hRamField     $RamMb
   ${NSD_GetText} $hSubnetField  $SubnetPrefix
 
-  ; Базовая валидация
+  ; Валидация префикса
   StrLen $0 $ClusterPrefix
   ${If} $0 < 2
-    MessageBox MB_OK|MB_ICONEXCLAMATION "Префикс должен быть не короче 2 символов."
+    MessageBox MB_OK|MB_ICONEXCLAMATION "Префикс слишком короткий (минимум 2 символа)."
     Abort
   ${EndIf}
 
-  IntCmp $WorkerCount 1 +3
-  IntCmp $WorkerCount 4 +2
-  ${If} $WorkerCount > "4"
-    MessageBox MB_OK|MB_ICONEXCLAMATION "Количество воркеров: от 1 до 4."
-    Abort
-  ${EndIf}
+  ; Валидация числа воркеров
+  IntCmp $WorkerCount 1 +3 +3 0
+  IntCmp $WorkerCount 4 0 0 +2
+  Goto +3
+  MessageBox MB_OK|MB_ICONEXCLAMATION "Количество воркеров: от 1 до 4."
+  Abort
 FunctionEnd
 
-; === РАЗДЕЛ 9: СТРАНИЦА СВОДКИ ===============================================
+; === 11. СТРАНИЦА: СВОДКА НАСТРОЕК ===========================================
 
 Function SummaryPageCreate
   !insertmacro MUI_HEADER_TEXT "$(STR_SUMMARY_TITLE)" "$(STR_SUMMARY_SUBTITLE)"
@@ -445,65 +383,43 @@ Function SummaryPageCreate
   nsDialogs::Create 1018
   Pop $hDialog
 
-  nsDialogs::CreateControl STATIC ${WS_VISIBLE}|${WS_CHILD} 0 10 5 360 14 "$(STR_SUMMARY_HEADER)"
-  Pop $0
-
-  nsDialogs::CreateControl STATIC ${WS_VISIBLE}|${WS_CHILD} 0 10 25 180 14 "$(STR_SUMMARY_PREFIX)"
-  Pop $0
-  nsDialogs::CreateControl STATIC ${WS_VISIBLE}|${WS_CHILD} 0 195 25 175 14 "$ClusterPrefix"
-  Pop $0
-
-  nsDialogs::CreateControl STATIC ${WS_VISIBLE}|${WS_CHILD} 0 10 42 180 14 "$(STR_SUMMARY_WORKERS)"
-  Pop $0
-  nsDialogs::CreateControl STATIC ${WS_VISIBLE}|${WS_CHILD} 0 195 42 175 14 "$WorkerCount"
-  Pop $0
-
-  nsDialogs::CreateControl STATIC ${WS_VISIBLE}|${WS_CHILD} 0 10 59 180 14 "$(STR_SUMMARY_CPU)"
-  Pop $0
-  nsDialogs::CreateControl STATIC ${WS_VISIBLE}|${WS_CHILD} 0 195 59 175 14 "$CpuCount"
-  Pop $0
-
-  nsDialogs::CreateControl STATIC ${WS_VISIBLE}|${WS_CHILD} 0 10 76 180 14 "$(STR_SUMMARY_RAM)"
-  Pop $0
-  nsDialogs::CreateControl STATIC ${WS_VISIBLE}|${WS_CHILD} 0 195 76 175 14 "$RamMb MB"
-  Pop $0
-
-  nsDialogs::CreateControl STATIC ${WS_VISIBLE}|${WS_CHILD} 0 10 93 180 14 "$(STR_SUMMARY_SUBNET)"
-  Pop $0
-  nsDialogs::CreateControl STATIC ${WS_VISIBLE}|${WS_CHILD} 0 195 93 175 14 "$SubnetPrefix.0/24"
-  Pop $0
-
-  nsDialogs::CreateControl STATIC ${WS_VISIBLE}|${WS_CHILD} 0 10 110 180 14 "$(STR_SUMMARY_DIR)"
-  Pop $0
-  nsDialogs::CreateControl STATIC ${WS_VISIBLE}|${WS_CHILD} 0 195 110 175 14 "$INSTDIR"
-  Pop $0
-
-  nsDialogs::CreateControl STATIC ${WS_VISIBLE}|${WS_CHILD} 0 10 138 360 28 "$(STR_SUMMARY_NOTE)"
-  Pop $0
+  ${NSD_CreateLabel} 10 5  370 14 "$(STR_SUMMARY_HEADER)"
+  ${NSD_CreateLabel} 10 25 160 14 "$(STR_SUMMARY_PREFIX)"
+  ${NSD_CreateLabel} 175 25 195 14 "$ClusterPrefix"
+  ${NSD_CreateLabel} 10 42 160 14 "$(STR_SUMMARY_WORKERS)"
+  ${NSD_CreateLabel} 175 42 195 14 "$WorkerCount"
+  ${NSD_CreateLabel} 10 59 160 14 "$(STR_SUMMARY_CPU)"
+  ${NSD_CreateLabel} 175 59 195 14 "$CpuCount"
+  ${NSD_CreateLabel} 10 76 160 14 "$(STR_SUMMARY_RAM)"
+  ${NSD_CreateLabel} 175 76 195 14 "$RamMb MB"
+  ${NSD_CreateLabel} 10 93 160 14 "$(STR_SUMMARY_SUBNET)"
+  ${NSD_CreateLabel} 175 93 195 14 "$SubnetPrefix.0/24"
+  ${NSD_CreateLabel} 10 110 160 14 "$(STR_SUMMARY_DIR)"
+  ${NSD_CreateLabel} 175 110 195 14 "$INSTDIR"
+  ${NSD_CreateLabel} 10 138 370 30 "$(STR_SUMMARY_NOTE)"
 
   nsDialogs::Show
 FunctionEnd
 
 Function SummaryPageLeave
-  ; Ничего не делаем — пользователь подтвердил, идём к установке
+  ; Пользователь подтвердил — ничего не делаем
 FunctionEnd
 
-; === РАЗДЕЛ 10: ДЕИНСТАЛЛЯТОР ================================================
+; === 12. ДЕИНСТАЛЛЯТОР =======================================================
 
 Section "Uninstall"
-  ; Останавливаем и удаляем ВМ
   nsExec::ExecToLog 'cmd.exe /C "cd /d "$INSTDIR" && vagrant destroy -f"'
 
-  ; Удаляем файлы
   RMDir /r "$INSTDIR\.vagrant"
   RMDir /r "$INSTDIR\scripts"
-  RMDir /r "$INSTDIR\docs"
   Delete "$INSTDIR\.env"
+  Delete "$INSTDIR\.env.example"
+  Delete "$INSTDIR\.gitignore"
   Delete "$INSTDIR\Vagrantfile"
   Delete "$INSTDIR\dashboard-token.txt"
+  Delete "$INSTDIR\README.md"
   Delete "$INSTDIR\uninstall.exe"
 
-  ; Удаляем записи реестра
   DeleteRegKey HKCU "Software\K8sLab"
   DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\K8sLab"
 
