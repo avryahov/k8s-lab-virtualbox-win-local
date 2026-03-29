@@ -108,6 +108,7 @@ stage1_workspace_dir = __dir__
 stage1_cluster_token = load_or_create_stage1_cluster_token(stage1_workspace_dir)
 stage1_virtualbox_prefix = "k8s-stage1-#{stage1_cluster_token}"
 cleanup_tail_script = File.join(stage1_workspace_dir, "scripts", "cleanup-vbox-tail.ps1")
+cleanup_runtime_script = File.join(stage1_workspace_dir, "scripts", "cleanup-stage1-runtime.ps1")
 stage1_host_port_pool = load_or_create_stage1_host_port_pool(stage1_workspace_dir)
 stage1_master_ssh_port = stage1_host_port_pool.fetch("master_ssh")
 stage1_master_api_port = stage1_host_port_pool.fetch("master_api")
@@ -395,6 +396,16 @@ Vagrant.configure("2") do |config|
       }
       # Скрипт смотрит только на exact-name и не трогает остальные VM в VirtualBox.
     end
+  end
+
+  config.trigger.after :destroy do |trigger|
+    # После завершения всей destroy-команды отдельно чистим локальные runtime-артефакты stage1:
+    # токен кластера, пул портов, join-команду, приватные ключи Vagrant и служебную .vagrant.
+    # Это нужно, чтобы следующий запуск начинался "с чистого листа" и не упирался в старый мусор.
+    trigger.name = "Cleanup local stage1 runtime artifacts after destroy"
+    trigger.run = {
+      inline: "powershell.exe -ExecutionPolicy Bypass -File #{ps_quote(cleanup_runtime_script)} -Stage1Dir #{ps_quote(stage1_workspace_dir)} -VmPrefix #{ps_quote(stage1_virtualbox_prefix)}"
+    }
   end
 
 end
