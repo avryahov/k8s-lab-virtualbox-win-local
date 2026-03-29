@@ -1,0 +1,8 @@
+# Vagrant runtime state — never commit
+.vagrant/
+
+# Active cluster config — contains local overrides, may differ per machine
+.env
+
+# Generated during provisioning by master.sh — recreated on every vagrant up
+join-command.sh
