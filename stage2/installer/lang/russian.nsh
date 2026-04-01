@@ -9,6 +9,15 @@
 LangString STR_WELCOME_TITLE     ${LANG_RUSSIAN} "Kubernetes Cluster Lab"
 LangString STR_WELCOME_TEXT      ${LANG_RUSSIAN} "Этот мастер установки создаст локальный кластер Kubernetes на твоём компьютере.$\n$\nВ состав кластера войдут:$\n  • 1 управляющая нода (master)$\n  • Несколько рабочих нод (workers)$\n$\nДля работы нужно: VirtualBox 7.x и Vagrant 2.4+.$\n$\nНажми «Далее» чтобы начать."
 
+; --- Режим установки ---
+LangString STR_MODE_TITLE      ${LANG_RUSSIAN} "Режим установки"
+LangString STR_MODE_SUBTITLE   ${LANG_RUSSIAN} "Выбери способ настройки кластера"
+LangString STR_MODE_DESC       ${LANG_RUSSIAN} "Как ты хочешь настроить кластер?"
+LangString STR_MODE_QUICK      ${LANG_RUSSIAN} "Быстрая установка (все значения по умолчанию)"
+LangString STR_MODE_QUICK_HINT ${LANG_RUSSIAN} "Master: 2 CPU, 2048 МБ RAM, 30 ГБ HDD. Workers: 2 ноды, 2 CPU, 2048 МБ RAM. Сеть: 192.168.56.x"
+LangString STR_MODE_ADVANCED   ${LANG_RUSSIAN} "Расширенная настройка"
+LangString STR_MODE_ADVANCED_HINT ${LANG_RUSSIAN} "Настрой все параметры вручную: ресурсы нод, сеть, порты, мосты. Больше контроля, но больше шагов."
+
 ; --- Проверка зависимостей ---
 LangString STR_DEPS_TITLE        ${LANG_RUSSIAN} "Проверка требований"
 LangString STR_DEPS_SUBTITLE     ${LANG_RUSSIAN} "Убедимся, что всё необходимое установлено"
@@ -76,6 +85,7 @@ LangString STR_SUMMARY_SUBNET    ${LANG_RUSSIAN} "Подсеть:"
 LangString STR_SUMMARY_BRIDGE    ${LANG_RUSSIAN} "Мост:"
 LangString STR_SUMMARY_PORTS     ${LANG_RUSSIAN} "Порты:"
 LangString STR_SUMMARY_DIR       ${LANG_RUSSIAN} "Папка проекта:"
+LangString STR_SUMMARY_SMOKE     ${LANG_RUSSIAN} "Smoke-тест:"
 LangString STR_SUMMARY_NOTE      ${LANG_RUSSIAN} "Установка займёт 15–30 минут (скачивание образа Ubuntu + Kubernetes)."
 
 ; --- Установка ---
@@ -92,6 +102,25 @@ LangString STR_INSTALL_DASHBOARD ${LANG_RUSSIAN} "Установка Dashboard..
 LangString STR_INSTALL_TOKEN     ${LANG_RUSSIAN} "Генерация токена доступа..."
 LangString STR_INSTALL_DONE      ${LANG_RUSSIAN} "Кластер готов!"
 
+; --- Smoke-тест ---
+LangString STR_SMOKE_TITLE       ${LANG_RUSSIAN} "Smoke-тестирование"
+LangString STR_SMOKE_SUBTITLE    ${LANG_RUSSIAN} "Проверка работоспособности кластера"
+LangString STR_SMOKE_RUN         ${LANG_RUSSIAN} "Запустить smoke-тест после установки"
+LangString STR_SMOKE_DESC        ${LANG_RUSSIAN} "Smoke-тест развернёт nginx-поды, проверит сеть и сервисы внутри кластера, затем покажет результаты.$\nЭто займёт 2–5 минут после завершения установки."
+LangString STR_SMOKE_YES         ${LANG_RUSSIAN} "Да, запустить"
+LangString STR_SMOKE_NO          ${LANG_RUSSIAN} "Нет, пропустить"
+
+; --- Результаты smoke-теста ---
+LangString STR_SMOKE_RES_TITLE   ${LANG_RUSSIAN} "Результаты smoke-теста"
+LangString STR_SMOKE_RES_SUBTITLE ${LANG_RUSSIAN} "Проверка завершена"
+LangString STR_SMOKE_RES_RUNNING  ${LANG_RUSSIAN} "Выполняется smoke-тест..."
+LangString STR_SMOKE_RES_PASS    ${LANG_RUSSIAN} "Smoke-тест пройден успешно!"
+LangString STR_SMOKE_RES_FAIL    ${LANG_RUSSIAN} "Smoke-тест не пройден. Проверь логи."
+LangString STR_SMOKE_RES_NODES   ${LANG_RUSSIAN} "Ноды:"
+LangString STR_SMOKE_RES_PODS    ${LANG_RUSSIAN} "Pod-ы:"
+LangString STR_SMOKE_RES_SVC     ${LANG_RUSSIAN} "Сервисы:"
+LangString STR_SMOKE_RES_JOB     ${LANG_RUSSIAN} "Job проверка:"
+
 ; --- Финиш ---
 LangString STR_FINISH_TITLE      ${LANG_RUSSIAN} "Установка завершена"
 LangString STR_FINISH_SUBTITLE   ${LANG_RUSSIAN} "Кластер Kubernetes успешно запущен"
@@ -106,7 +135,52 @@ LangString STR_FINISH_NODES      ${LANG_RUSSIAN} "Ноды:"
 LangString STR_FINISH_OPEN       ${LANG_RUSSIAN} "Открыть папку проекта"
 LangString STR_FINISH_DOCS       ${LANG_RUSSIAN} "Открыть документацию"
 
+; --- Сеть Master ---
+LangString STR_MASTERNET_TITLE   ${LANG_RUSSIAN} "Сеть Master-ноды"
+LangString STR_MASTERNET_SUBTITLE ${LANG_RUSSIAN} "Параметры сетевого подключения Master"
+LangString STR_MASTERNET_HINT    ${LANG_RUSSIAN} "Мост (Bridged) даёт Master-ноде прямой доступ к физической сети. NAT изолирует ВМ внутри хоста."
+
+; --- Режим сети Worker ---
+LangString STR_WORKERNETMODE_TITLE ${LANG_RUSSIAN} "Режим сети Worker-нод"
+LangString STR_WORKERNETMODE_SUBTITLE ${LANG_RUSSIAN} "Как настроить сеть для рабочих нод?"
+LangString STR_WORKERNETMODE_DESC ${LANG_RUSSIAN} "Выбери способ настройки сети для Worker-нод:"
+LangString STR_WORKERNETMODE_COMMON ${LANG_RUSSIAN} "Общая сеть для всех Worker-нод"
+LangString STR_WORKERNETMODE_COMMON_HINT ${LANG_RUSSIAN} "Одна подсеть и мост для всех. SSH-порты будут назначены автоматически (базовый порт + 10 для каждой ноды)."
+LangString STR_WORKERNETMODE_INDIVIDUAL ${LANG_RUSSIAN} "Индивидуальная сеть для каждой Worker-ноды"
+LangString STR_WORKERNETMODE_INDIVIDUAL_HINT ${LANG_RUSSIAN} "Каждая нода получит свою подсеть, мост и порт. Больше контроля, но больше шагов настройки."
+
+; --- Сеть Worker ---
+LangString STR_WORKERNET_TITLE   ${LANG_RUSSIAN} "Сеть Worker-нод"
+LangString STR_WORKERNET_SUBTITLE ${LANG_RUSSIAN} "Параметры сетевого подключения"
+LangString STR_WORKERNET_SSH_BASE ${LANG_RUSSIAN} "Базовый SSH-порт"
+LangString STR_WORKERNET_SSH_PORT ${LANG_RUSSIAN} "SSH-порт"
+LangString STR_WORKERNET_COMMON_HINT ${LANG_RUSSIAN} "Каждая Worker-нода получит IP: базовая_подсеть.11, .12, .13, .14$\nSSH-порты: базовый_порт, базовый+10, базовый+20, базовый+30"
+LangString STR_WORKERNET_INDIVIDUAL ${LANG_RUSSIAN} "Индивидуальные настройки"
+
+; --- Сводка (дополнительно) ---
+LangString STR_SUMMARY_MASTER_NET ${LANG_RUSSIAN} "Сеть Master:"
+LangString STR_SUMMARY_WORKER_NET ${LANG_RUSSIAN} "Сеть Worker:"
+
 ; --- Ошибки ---
 LangString STR_ERR_VAGRANT_FAIL  ${LANG_RUSSIAN} "vagrant up завершился с ошибкой.$\nПроверь логи в папке проекта.$\nДля диагностики: vagrant status"
 LangString STR_ERR_NO_ADMIN      ${LANG_RUSSIAN} "Требуются права администратора.$\nЗапусти установщик от имени администратора."
 LangString STR_ERR_INVALID_SUBNET ${LANG_RUSSIAN} "Неверный формат подсети.$\nУкажи первые 3 октета, например: 192.168.56"
+LangString STR_ERR_SHORT_PREFIX  ${LANG_RUSSIAN} "Префикс слишком короткий (минимум 2 символа)."
+LangString STR_ERR_CPU_RANGE     ${LANG_RUSSIAN} "CPU: от 1 до 8."
+LangString STR_ERR_RAM_RANGE     ${LANG_RUSSIAN} "RAM: от 512 до 16384 МБ."
+LangString STR_ERR_WORKER_COUNT_RANGE ${LANG_RUSSIAN} "Количество воркеров: от 1 до 4."
+LangString STR_ERR_PORT_RANGE    ${LANG_RUSSIAN} "Порт: от 1024 до 65535."
+
+; --- Use defaults checkbox ---
+LangString STR_USE_DEFAULTS      ${LANG_RUSSIAN} "Использовать значения по умолчанию"
+
+; --- Summary tree ---
+LangString STR_SUMMARY_TREE_TITLE    ${LANG_RUSSIAN} "Дерево кластера"
+LangString STR_SUMMARY_TREE_MASTER   ${LANG_RUSSIAN} "Master-нода"
+LangString STR_SUMMARY_TREE_WORKER   ${LANG_RUSSIAN} "Worker-нода"
+LangString STR_SUMMARY_TREE_CPU      ${LANG_RUSSIAN} "CPU"
+LangString STR_SUMMARY_TREE_RAM      ${LANG_RUSSIAN} "RAM"
+LangString STR_SUMMARY_TREE_HDD      ${LANG_RUSSIAN} "HDD"
+LangString STR_SUMMARY_TREE_NETWORK  ${LANG_RUSSIAN} "Сеть"
+LangString STR_SUMMARY_TREE_PORTS    ${LANG_RUSSIAN} "Порты"
+LangString STR_SUMMARY_TREE_BRIDGE   ${LANG_RUSSIAN} "Мост"

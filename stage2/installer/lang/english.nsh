@@ -5,6 +5,15 @@
 ; Language: English (LangId 1033)
 ; =============================================================================
 
+; --- Install Mode ---
+LangString STR_MODE_TITLE      ${LANG_ENGLISH} "Install Mode"
+LangString STR_MODE_SUBTITLE   ${LANG_ENGLISH} "Choose how to configure the cluster"
+LangString STR_MODE_DESC       ${LANG_ENGLISH} "How do you want to set up the cluster?"
+LangString STR_MODE_QUICK      ${LANG_ENGLISH} "Quick install (all default values)"
+LangString STR_MODE_QUICK_HINT ${LANG_ENGLISH} "Master: 2 CPU, 2048 MB RAM, 30 GB HDD. Workers: 2 nodes, 2 CPU, 2048 MB RAM. Network: 192.168.56.x"
+LangString STR_MODE_ADVANCED   ${LANG_ENGLISH} "Advanced configuration"
+LangString STR_MODE_ADVANCED_HINT ${LANG_ENGLISH} "Configure all parameters manually: node resources, network, ports, bridges. More control, but more steps."
+
 ; --- General ---
 LangString STR_WELCOME_TITLE     ${LANG_ENGLISH} "Kubernetes Cluster Lab"
 LangString STR_WELCOME_TEXT      ${LANG_ENGLISH} "This wizard will set up a local Kubernetes cluster on your computer.$\n$\nThe cluster will include:$\n  • 1 control-plane node (master)$\n  • One or more worker nodes$\n$\nRequirements: VirtualBox 7.x and Vagrant 2.4+.$\n$\nClick Next to begin."
@@ -76,6 +85,7 @@ LangString STR_SUMMARY_SUBNET    ${LANG_ENGLISH} "Subnet:"
 LangString STR_SUMMARY_BRIDGE    ${LANG_ENGLISH} "Bridge:"
 LangString STR_SUMMARY_PORTS     ${LANG_ENGLISH} "Ports:"
 LangString STR_SUMMARY_DIR       ${LANG_ENGLISH} "Project folder:"
+LangString STR_SUMMARY_SMOKE     ${LANG_ENGLISH} "Smoke test:"
 LangString STR_SUMMARY_NOTE      ${LANG_ENGLISH} "Installation will take 15–30 minutes (Ubuntu image download + Kubernetes setup)."
 
 ; --- Installation ---
@@ -92,6 +102,25 @@ LangString STR_INSTALL_DASHBOARD ${LANG_ENGLISH} "Installing Dashboard..."
 LangString STR_INSTALL_TOKEN     ${LANG_ENGLISH} "Generating access token..."
 LangString STR_INSTALL_DONE      ${LANG_ENGLISH} "Cluster is ready!"
 
+; --- Smoke test ---
+LangString STR_SMOKE_TITLE       ${LANG_ENGLISH} "Smoke Testing"
+LangString STR_SMOKE_SUBTITLE    ${LANG_ENGLISH} "Cluster health verification"
+LangString STR_SMOKE_RUN         ${LANG_ENGLISH} "Run smoke test after installation"
+LangString STR_SMOKE_DESC        ${LANG_ENGLISH} "The smoke test will deploy nginx pods, verify networking and services inside the cluster, then show results.$\nThis will take 2–5 minutes after installation completes."
+LangString STR_SMOKE_YES         ${LANG_ENGLISH} "Yes, run it"
+LangString STR_SMOKE_NO          ${LANG_ENGLISH} "No, skip"
+
+; --- Smoke test results ---
+LangString STR_SMOKE_RES_TITLE   ${LANG_ENGLISH} "Smoke Test Results"
+LangString STR_SMOKE_RES_SUBTITLE ${LANG_ENGLISH} "Test completed"
+LangString STR_SMOKE_RES_RUNNING  ${LANG_ENGLISH} "Running smoke test..."
+LangString STR_SMOKE_RES_PASS    ${LANG_ENGLISH} "Smoke test passed successfully!"
+LangString STR_SMOKE_RES_FAIL    ${LANG_ENGLISH} "Smoke test failed. Check the logs."
+LangString STR_SMOKE_RES_NODES   ${LANG_ENGLISH} "Nodes:"
+LangString STR_SMOKE_RES_PODS    ${LANG_ENGLISH} "Pods:"
+LangString STR_SMOKE_RES_SVC     ${LANG_ENGLISH} "Services:"
+LangString STR_SMOKE_RES_JOB     ${LANG_ENGLISH} "Job check:"
+
 ; --- Finish ---
 LangString STR_FINISH_TITLE      ${LANG_ENGLISH} "Installation Complete"
 LangString STR_FINISH_SUBTITLE   ${LANG_ENGLISH} "Kubernetes cluster is up and running"
@@ -106,7 +135,52 @@ LangString STR_FINISH_NODES      ${LANG_ENGLISH} "Nodes:"
 LangString STR_FINISH_OPEN       ${LANG_ENGLISH} "Open project folder"
 LangString STR_FINISH_DOCS       ${LANG_ENGLISH} "Open documentation"
 
+; --- Master Network ---
+LangString STR_MASTERNET_TITLE   ${LANG_ENGLISH} "Master Node Network"
+LangString STR_MASTERNET_SUBTITLE ${LANG_ENGLISH} "Master node network parameters"
+LangString STR_MASTERNET_HINT    ${LANG_ENGLISH} "Bridged gives the master node direct access to the physical network. NAT isolates the VM within the host."
+
+; --- Worker Network Mode ---
+LangString STR_WORKERNETMODE_TITLE ${LANG_ENGLISH} "Worker Network Mode"
+LangString STR_WORKERNETMODE_SUBTITLE ${LANG_ENGLISH} "How to configure worker node networking?"
+LangString STR_WORKERNETMODE_DESC ${LANG_ENGLISH} "Choose how to configure networking for worker nodes:"
+LangString STR_WORKERNETMODE_COMMON ${LANG_ENGLISH} "Common network for all worker nodes"
+LangString STR_WORKERNETMODE_COMMON_HINT ${LANG_ENGLISH} "One subnet and bridge for all. SSH ports will be assigned automatically (base port + 10 for each node)."
+LangString STR_WORKERNETMODE_INDIVIDUAL ${LANG_ENGLISH} "Individual network for each worker node"
+LangString STR_WORKERNETMODE_INDIVIDUAL_HINT ${LANG_ENGLISH} "Each node gets its own subnet, bridge, and port. More control, but more configuration steps."
+
+; --- Worker Network ---
+LangString STR_WORKERNET_TITLE   ${LANG_ENGLISH} "Worker Nodes Network"
+LangString STR_WORKERNET_SUBTITLE ${LANG_ENGLISH} "Network connection parameters"
+LangString STR_WORKERNET_SSH_BASE ${LANG_ENGLISH} "Base SSH port"
+LangString STR_WORKERNET_SSH_PORT ${LANG_ENGLISH} "SSH port"
+LangString STR_WORKERNET_COMMON_HINT ${LANG_ENGLISH} "Each worker node gets IP: base_subnet.11, .12, .13, .14$\nSSH ports: base_port, base+10, base+20, base+30"
+LangString STR_WORKERNET_INDIVIDUAL ${LANG_ENGLISH} "Individual settings"
+
+; --- Summary (additional) ---
+LangString STR_SUMMARY_MASTER_NET ${LANG_ENGLISH} "Master Network:"
+LangString STR_SUMMARY_WORKER_NET ${LANG_ENGLISH} "Worker Network:"
+
 ; --- Errors ---
 LangString STR_ERR_VAGRANT_FAIL  ${LANG_ENGLISH} "vagrant up failed.$\nCheck the logs in the project folder.$\nFor diagnostics: vagrant status"
 LangString STR_ERR_NO_ADMIN      ${LANG_ENGLISH} "Administrator privileges required.$\nPlease run the installer as Administrator."
 LangString STR_ERR_INVALID_SUBNET ${LANG_ENGLISH} "Invalid subnet format.$\nEnter the first 3 octets, e.g.: 192.168.56"
+LangString STR_ERR_SHORT_PREFIX  ${LANG_ENGLISH} "Prefix too short (minimum 2 characters)."
+LangString STR_ERR_CPU_RANGE     ${LANG_ENGLISH} "CPU: 1 to 8."
+LangString STR_ERR_RAM_RANGE     ${LANG_ENGLISH} "RAM: 512 to 16384 MB."
+LangString STR_ERR_WORKER_COUNT_RANGE ${LANG_ENGLISH} "Worker count: 1 to 4."
+LangString STR_ERR_PORT_RANGE    ${LANG_ENGLISH} "Port: 1024 to 65535."
+
+; --- Use defaults checkbox ---
+LangString STR_USE_DEFAULTS      ${LANG_ENGLISH} "Use default values"
+
+; --- Summary tree ---
+LangString STR_SUMMARY_TREE_TITLE    ${LANG_ENGLISH} "Cluster Tree"
+LangString STR_SUMMARY_TREE_MASTER   ${LANG_ENGLISH} "Master Node"
+LangString STR_SUMMARY_TREE_WORKER   ${LANG_ENGLISH} "Worker Node"
+LangString STR_SUMMARY_TREE_CPU      ${LANG_ENGLISH} "CPU"
+LangString STR_SUMMARY_TREE_RAM      ${LANG_ENGLISH} "RAM"
+LangString STR_SUMMARY_TREE_HDD      ${LANG_ENGLISH} "HDD"
+LangString STR_SUMMARY_TREE_NETWORK  ${LANG_ENGLISH} "Network"
+LangString STR_SUMMARY_TREE_PORTS    ${LANG_ENGLISH} "Ports"
+LangString STR_SUMMARY_TREE_BRIDGE   ${LANG_ENGLISH} "Bridge"
