@@ -1,0 +1,417 @@
+# =============================================================================
+# Vagrantfile — Stage 2: «Гибкий» сценарий
+# =============================================================================
+#
+# ЧТО ЗДЕСЬ ПРОИСХОДИТ:
+#   Vagrant читает этот файл и создаёт виртуальные машины в VirtualBox
+#   на основе конфигурации из файла .env (или переменных окружения).
+#
+#   В отличие от Stage 1, здесь ВСЁ параметризовано:
+#     - Количество worker-нод (1–N, по умолчанию 2)
+#     - CPU и RAM на каждую ноду
+#     - Подсеть и IP-адреса
+#     - Имена виртуальных машин
+#     - Версия Kubernetes
+#
+#   Это позволяет использовать один и тот же Vagrantfile для разных
+#   сценариев: от минимального 2-нодного стенда до 5-нодного кластера.
+#
+# КАК ЗАПУСТИТЬ:
+#   Вариант A (рекомендуется): через proxy-launch.bat с параметрами
+#     .\proxy-launch.bat --workers=3 --cpus=4 --memory=4096
+#
+#   Вариант B (вручную):
+#     1. Скопируй .env.example в .env
+#     2. Отредактируй .env по своему вкусу
+#     3. vagrant up
+#
+# ОТЛИЧИЯ ОТ STAGE 1:
+#   - Stage 1: всё хардкодом, фиксированные 3 ноды, парольная аутентификация
+#   - Stage 2: .env-конфигурация, SSH-ключи, динамическое число worker-нод
+#   - Stage 2: provisioning всех нод стартует параллельно
+#   - Stage 2: post-bootstrap автоматизация запускается сразу после vagrant up
+#
+# ЧИТАЙ ТАКЖЕ:
+#   - stage2/README.md — документация Stage 2
+#   - stage2/.env.example — шаблон конфигурации
+#   - docs/architecture.md — общая архитектура проекта
+# =============================================================================
+
+require "fileutils"
+
+# =============================================================================
+# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# load_env_file — парсер файла .env
+# ---------------------------------------------------------------------------
+# Читает файл .env построчно и возвращает хеш ключ-значение.
+#
+# ФОРМАТ .env:
+#   КЛЮЧ=ЗНАЧЕНИЕ
+#   # это комментарий — пропускается
+#   ПУСТОЕ_ЗНАЧЕНИЕ=    # тоже допустимо
+#
+# ПОЧЕМУ СВОЙ ПАРСЕР, А НЕ ГЕМ:
+#   Ruby-гем dotenv требует установки. Этот парсер — 12 строк кода,
+#   не требует зависимостей и покрывает 99% случаев использования .env.
+#
+# КАК РАБОТАЕТ:
+#   1. Читает файл построчно
+#   2. Пропускает пустые строки и строки, начинающиеся с #
+#   3. Разделяет строку по первому = (ключ может содержать = в значении)
+#   4. Убирает кавычки вокруг значения (если есть)
+def load_env_file(path)
+  env = {}
+  return env unless File.exist?(path)
+
+  File.readlines(path, chomp: true).each do |line|
+    next if line.strip.empty? || line.strip.start_with?("#")
+
+    key, value = line.split("=", 2)
+    next if key.nil? || value.nil?
+
+    # Убираем одинарные и двойные кавычки по краям значения.
+    # \A — начало строки, \z — конец строки (в Ruby, не ^ и $).
+    # ['"] — одинарная или двойная кавычка.
+    env[key.strip] = value.strip.gsub(/\A['"]|['"]\z/, "")
+  end
+
+  env
+end
+
+# ---------------------------------------------------------------------------
+# ps_quote — экранирование для PowerShell
+# ---------------------------------------------------------------------------
+# Оборачивает значение в одинарные кавычки и экранирует внутренние кавычки.
+#
+# ЗАЧЕМ:
+#   Когда Vagrant вызывает PowerShell-скрипт с аргументами,
+#   значения могут содержать пробелы или спецсимволы.
+#   Без экранирования PowerShell разберёт аргументы неправильно.
+#
+# КАК РАБОТАЕТ:
+#   'hello' → ''hello''
+#   'it''s' → ''it''''s''  (одинарная кавычка внутри удваивается)
+#
+# ПРИМЕР ИСПОЛЬЗОВАНИЯ:
+#   trigger.run = { inline: "powershell.exe -File #{ps_quote(path)}" }
+def ps_quote(value)
+  "'#{value.gsub("'", "''")}'"
+end
+
+# ---------------------------------------------------------------------------
+# ensure_node_key — генерация SSH-ключа для ноды
+# ---------------------------------------------------------------------------
+# Вызывает PowerShell-скрипт generate-node-key.ps1 для создания
+# пары ключей ed25519 (приватный + публичный) для конкретной ноды.
+#
+# ЗАЧЕМ SSH-КЛЮЧИ:
+#   В Stage 2 вместо пароля vagrant/vagrant используются SSH-ключи.
+#   Это безопаснее и ближе к production-практике.
+#   Ключи генерируются автоматически при каждом vagrant up.
+#
+# ПОЧЕМУ ED25519:
+#   - Быстрее RSA при эквивалентной безопасности
+#   - Ключ всего 32 байта (против 2048+ бит у RSA)
+#   - Рекомендован NIST, OpenSSH, GitHub с 2014 года
+#   - Не подвержен атакам на генератор случайных чисел (в отличие с ECDSA)
+#
+# ГДЕ ХРАНЯТСЯ КЛЮЧИ:
+#   .vagrant/node-keys/<имя_ноды>.ed25519      — приватный ключ
+#   .vagrant/node-keys/<имя_ноды>.ed25519.pub  — публичный ключ
+#
+# ИДЕМПОТЕНТНОСТЬ:
+#   generate-node-key.ps1 проверяет, существует ли уже ключ.
+#   Если да — не перегенерирует, использует существующий.
+def ensure_node_key(generate_key_script, node_name, ssh_key_dir)
+  ok = system(
+    "powershell.exe",
+    "-ExecutionPolicy", "Bypass",
+    "-File", generate_key_script,
+    "-NodeName", node_name,
+    "-KeyDirectory", ssh_key_dir
+  )
+  raise "Failed to generate SSH key for #{node_name}" unless ok
+end
+
+# =============================================================================
+# ЗАГРУЗКА КОНФИГУРАЦИИ
+# =============================================================================
+
+# Загружаем .env из текущей директории (где лежит Vagrantfile).
+# Если файла нет — используем значения по умолчанию.
+env_file = load_env_file(File.join(__dir__, ".env"))
+
+# Сливаем: переменные окружения ОС имеют приоритет над .env.
+# Это позволяет переопределять настройки через proxy-launch.bat
+# без изменения файла .env.
+env = ENV.to_h.merge(env_file)
+
+# Определяем, какая команда была запущена.
+# Нужно для понимания, генерировать ли SSH-ключи.
+active_command = ARGV.first
+commands_requiring_node_keys = %w[up reload provision validate]
+requires_node_keys = commands_requiring_node_keys.include?(active_command)
+
+# Пути к скриптам и директориям.
+workspace_dir = __dir__
+ssh_key_dir = File.join(workspace_dir, ".vagrant", "node-keys")
+generate_key_script = File.join(workspace_dir, "scripts", "generate-node-key.ps1")
+cleanup_key_script = File.join(workspace_dir, "scripts", "cleanup-node-key.ps1")
+
+# ---------------------------------------------------------------------------
+# Чтение параметров конфигурации с значениями по умолчанию
+# ---------------------------------------------------------------------------
+# env.fetch("КЛЮЧ", "по_умолчанию") — берёт из .env или использует дефолт.
+# .to_i — конвертирует строку в число (Ruby всегда читает строки из файлов).
+
+cluster_prefix = env.fetch("CLUSTER_PREFIX", "lab-k8s")
+box_name = env.fetch("VM_BOX", "bento/ubuntu-22.04")
+worker_count = env.fetch("WORKER_COUNT", "2").to_i
+worker_count = 1 if worker_count < 1  # Минимум 1 worker, даже если указано 0
+
+common_cpus = env.fetch("VM_CPUS", "4").to_i
+common_memory = env.fetch("VM_MEMORY_MB", "8192").to_i
+boot_timeout = env.fetch("VM_BOOT_TIMEOUT", "600").to_i
+
+private_network_prefix = env.fetch("PRIVATE_NETWORK_PREFIX", "192.168.56")
+private_network_gateway = env.fetch("PRIVATE_NETWORK_GATEWAY", "#{private_network_prefix}.1")
+master_private_ip = env.fetch("MASTER_PRIVATE_IP", "#{private_network_prefix}.10")
+master_ssh_port = env.fetch("MASTER_SSH_PORT", "2232").to_i
+master_api_port = env.fetch("MASTER_API_PORT", "6443").to_i
+master_dashboard_port = env.fetch("MASTER_DASHBOARD_PORT", "30443").to_i
+
+kubernetes_version = env.fetch("KUBERNETES_VERSION", "1.34")
+pod_cidr = env.fetch("POD_CIDR", "10.244.0.0/16")
+bridge_adapter = env["BRIDGE_ADAPTER"]  # Может быть nil — опциональный параметр
+
+# =============================================================================
+# ФОРМИРОВАНИЕ СПИСКА НОД
+# =============================================================================
+
+# Мастер — всегда одна нода.
+# name — имя ВМ в VirtualBox, hostname — имя внутри Linux.
+# В Stage 2 они могут отличаться (в Stage 1 всегда совпадали).
+nodes = [
+  {
+    name: env.fetch("MASTER_VM_NAME", "#{cluster_prefix}-master"),
+    hostname: env.fetch("MASTER_HOSTNAME", "#{cluster_prefix}-master"),
+    ip: master_private_ip,
+    ssh_port: master_ssh_port,
+    role: "master"
+  }
+]
+
+# Worker-ноды — от 1 до N.
+# Каждая получает IP: private_network_prefix.(10 + idx)
+# SSH-порт: 2232 + idx * 10 (2242, 2252, 2262, ...)
+(1..worker_count).each do |idx|
+  nodes << {
+    name: env.fetch("WORKER#{idx}_VM_NAME", "#{cluster_prefix}-worker#{idx}"),
+    hostname: env.fetch("WORKER#{idx}_HOSTNAME", "#{cluster_prefix}-worker#{idx}"),
+    ip: env.fetch("WORKER#{idx}_PRIVATE_IP", "#{private_network_prefix}.#{10 + idx}"),
+    ssh_port: env.fetch("WORKER#{idx}_SSH_PORT", (2232 + idx * 10).to_s).to_i,
+    role: "worker"
+  }
+end
+
+# Формируем строку записей для /etc/hosts всех нод.
+# Формат: "192.168.56.10 lab-k8s-master,192.168.56.11 lab-k8s-worker1,..."
+# Эта строка передаётся в common.sh, который записывает её в /etc/hosts.
+host_entries = nodes.map { |node| "#{node[:ip]} #{node[:hostname]}" }.join(",")
+
+# Генерируем SSH-ключи для всех нод (если команда требует).
+# Ключи создаются ДО запуска ВМ, чтобы common.sh мог сразу добавить
+# публичный ключ в authorized_keys.
+nodes.each { |node| ensure_node_key(generate_key_script, node[:name], ssh_key_dir) } if requires_node_keys
+
+# =============================================================================
+# ОПРЕДЕЛЕНИЕ ВИРТУАЛЬНЫХ МАШИН
+# =============================================================================
+
+Vagrant.configure("2") do |config|
+  # Vagrant.configure("2") — главный блок конфигурации.
+  # "2" — версия синтаксиса Vagrantfile (не версия программы Vagrant).
+
+  # Базовый образ (box) для всех ВМ.
+  # Vagrant скачивает его один раз (~500 МБ–2 ГБ) и использует как шаблон.
+  # "bento/ubuntu-22.04" — Ubuntu 22.04 LTS от сообщества Bento.
+  config.vm.box = box_name
+  config.vm.box_check_update = false
+
+  # SSH-настройки по умолчанию для всех ВМ.
+  # vagrant/vagrant — стандартные учётные данные Vagrant-боксов.
+  # insert_key = false — не заменять стандартный ключ на уникальный.
+  # В Stage 2 мы используем собственные ed25519-ключи, поэтому
+  # стандартный механизм ключей Vagrant отключаем.
+  config.ssh.username = "vagrant"
+  config.ssh.password = "vagrant"
+  config.ssh.insert_key = false
+
+  # ---------------------------------------------------------------------------
+  # Цикл по всем нодам (master + workers)
+  # ---------------------------------------------------------------------------
+  nodes.each do |node|
+    config.vm.define node[:name] do |machine|
+      # machine — объект конфигурации конкретной ВМ.
+      # Все настройки внутри этого блока применяются только к этой ноде.
+
+      # Путь к приватному SSH-ключу этой ноды.
+      # Используется для SSH-подключения с хоста.
+      node_key_path = File.join(ssh_key_dir, "#{node[:name]}.ed25519")
+
+      # Имя хоста внутри гостевой ОС (Linux).
+      # Kubernetes идентифицирует ноды по hostname.
+      machine.vm.hostname = node[:hostname]
+      machine.vm.boot_timeout = boot_timeout
+      machine.ssh.username = "vagrant"
+      machine.ssh.password = "vagrant"
+
+      # -----------------------------------------------------------------------
+      # Trigger: очистка SSH-ключа при уничтожении ноды
+      # -----------------------------------------------------------------------
+      # После vagrant destroy этой ноды запускаем PowerShell-скрипт,
+      # который удаляет файлы ключей (.ed25519 и .ed25519.pub).
+      # Это предотвращает накопление «мусора» в .vagrant/node-keys/.
+      machine.trigger.after :destroy do |trigger|
+        trigger.name = "Remove SSH key for #{node[:name]}"
+        trigger.run = {
+          inline: "powershell.exe -ExecutionPolicy Bypass -File #{ps_quote(cleanup_key_script)} -NodeName #{ps_quote(node[:name])} -KeyDirectory #{ps_quote(ssh_key_dir)}"
+        }
+      end
+
+      # -----------------------------------------------------------------------
+      # СЕТИ
+      # -----------------------------------------------------------------------
+
+      # private_network — внутренняя сеть хоста (host-only).
+      # Все ноды находятся в одной подсети и видят друг друга.
+      # Это основная сеть для коммуникации Kubernetes-компонентов.
+      machine.vm.network "private_network", ip: node[:ip]
+
+      # public_network (bridged) — опциональная сеть с выходом в LAN.
+      # Если BRIDGE_ADAPTER задан в .env, ВМ получает IP от роутера
+      # и становится доступна другим устройствам в локальной сети.
+      # Полезна для демонстрации кластера коллегам.
+      if bridge_adapter && !bridge_adapter.empty?
+        machine.vm.network "public_network", bridge: bridge_adapter, auto_config: true
+      end
+
+      # Проброс портов:
+      # SSH — на всех нодах (для подключения с хоста).
+      machine.vm.network "forwarded_port",
+        guest: 22,
+        host: node[:ssh_port],
+        auto_correct: true,
+        id: "ssh"
+
+      # API Server и Dashboard — только на master-ноде.
+      # Worker-ноды не нуждаются в пробросе этих портов.
+      if node[:role] == "master"
+        # Kubernetes API Server — используется kubectl с хоста Windows.
+        machine.vm.network "forwarded_port",
+          guest: 6443,
+          host: master_api_port,
+          auto_correct: true,
+          id: "k8s-api"
+
+        # Kubernetes Dashboard — веб-интерфейс кластера.
+        # Доступен в браузере: https://localhost:30443
+        machine.vm.network "forwarded_port",
+          guest: 30443,
+          host: master_dashboard_port,
+          auto_correct: true,
+          id: "k8s-dashboard"
+      end
+
+      # -----------------------------------------------------------------------
+      # НАСТРОЙКИ VIRTUALBOX
+      # -----------------------------------------------------------------------
+      machine.vm.provider "virtualbox" do |vb|
+        vb.name = node[:name]       # Имя ВМ в интерфейсе VirtualBox
+        vb.cpus = common_cpus       # Количество виртуальных CPU
+        vb.memory = common_memory   # Оперативная память (МБ)
+        vb.gui = false              # Без графического интерфейса (headless)
+      end
+
+      # -----------------------------------------------------------------------
+      # PROVISIONING: общая подготовка (на ВСЕХ нодах)
+      # -----------------------------------------------------------------------
+      # common.sh — базовая настройка Linux для Kubernetes:
+      #   - Отключение swap
+      #   - Загрузка модулей ядра (overlay, br_netfilter)
+      #   - Настройка sysctl (ip_forward, bridge-nf-call-iptables)
+      #   - Установка containerd
+      #   - Установка kubeadm, kubelet, kubectl
+      #   - Настройка /etc/hosts
+      #   - Injection SSH-ключа в authorized_keys
+      #
+      # Аргументы передаются как позиционные параметры ($1, $2, ...):
+      #   $1 — hostname (имя хоста внутри Linux)
+      #   $2 — node IP (IP host-only адаптера)
+      #   $3 — host entries (записи для /etc/hosts, через запятую)
+      #   $4 — K8s version (версия Kubernetes, например 1.34)
+      #   $5 — gateway IP (IP шлюза, не используется напрямую)
+      #   $6 — node name (имя ВМ в Vagrant, для SSH-ключей)
+      machine.vm.provision "shell",
+        path: "scripts/common.sh",
+        args: [
+          node[:hostname],
+          node[:ip],
+          host_entries,
+          kubernetes_version,
+          private_network_gateway,
+          node[:name]
+        ]
+
+      # -----------------------------------------------------------------------
+      # PROVISIONING: роль-специфичные скрипты
+      # -----------------------------------------------------------------------
+      if node[:role] == "master"
+        # master.sh — инициализация control plane:
+        #   - kubeadm init (создание кластера)
+        #   - Установка Calico CNI (сетевой плагин)
+        #   - Генерация join-command.sh для worker-нод
+        #   - Установка Kubernetes Dashboard
+        #   - Создание admin-user ServiceAccount
+        machine.vm.provision "shell",
+          path: "scripts/master.sh",
+          args: [master_private_ip, pod_cidr]
+      else
+        # worker.sh — присоединение к кластеру:
+        #   - Ожидание join-command.sh от мастера
+        #   - kubeadm join (подключение к кластеру)
+        machine.vm.provision "shell",
+          path: "scripts/worker.sh"
+      end
+    end
+  end
+end
+
+# =============================================================================
+# СТРУКТУРА СЕТИ STAGE 2 (по умолчанию):
+#
+#  Windows (хост)
+#  ├── VirtualBox Host-Only Network (192.168.56.0/24)
+#  │   ├── lab-k8s-master   192.168.56.10   ← управление кластером
+#  │   ├── lab-k8s-worker1  192.168.56.11   ← рабочая нода #1
+#  │   └── lab-k8s-worker2  192.168.56.12   ← рабочая нода #2
+#  │
+#  └── Порты на localhost (127.0.0.1):
+#      ├── :2232 → master SSH
+#      ├── :2242 → worker1 SSH
+#      ├── :2252 → worker2 SSH
+#      ├── :6443 → Kubernetes API
+#      └── :30443 → Dashboard HTTPS
+#
+#  Внутри кластера:
+#  └── Pod-сеть: 10.244.0.0/16 (Calico CNI, VXLAN-туннели)
+#
+#  SSH-ключи:
+#  └── .vagrant/node-keys/
+#      ├── lab-k8s-master.ed25519 / .pub
+#      ├── lab-k8s-worker1.ed25519 / .pub
+#      └── lab-k8s-worker2.ed25519 / .pub
+# =============================================================================
