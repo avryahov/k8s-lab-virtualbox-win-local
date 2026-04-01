@@ -2,7 +2,7 @@
 
 ## Назначение файла
 
-Этот файл нужен как живая точка синхронизации для пользователя и любого следующего ассистента.
+Этот файл — живая точка синхронизации для пользователя и любого следующего ассистента.
 
 Здесь фиксируются:
 
@@ -30,103 +30,42 @@
 
 ## Система статусов проекта
 
-В проекте полезно различать не только "готово / не готово", но и происхождение результата, глубину проверки и наличие реальной пользовательской практики.
-
 Базовая система статусов:
 
 ### Зрелость
 
-- `BACKLOG`
-- `DRAFT`
-- `IN_PROGRESS`
-- `REVIEW`
-- `VERIFIED`
-- `PRACTICED`
+`BACKLOG` → `DRAFT` → `IN_PROGRESS` → `REVIEW` → `VERIFIED` → `PRACTICED`
 
 ### Происхождение
 
-- `AI_ASSISTED`
-- `HUMAN_AUTHORED`
-- `HYBRID`
+`AI_ASSISTED` / `HUMAN_AUTHORED` / `HYBRID`
 
 ### Проверка
 
-- `SELF_CHECKED`
-- `PEER_REVIEWED`
-- `USER_VALIDATED`
-- `FIELD_PROVEN`
-
-Минимальная карточка состояния для артефакта:
-
-```text
-Maturity: VERIFIED
-Origin: HYBRID
-Verification: SELF_CHECKED
-Real-user validation: NO
-```
-
-Смысл этой схемы:
-
-- честно показывать, что именно уже работает;
-- не путать локальную техническую готовность с реальной эксплуатационной зрелостью;
-- отдельно фиксировать участие нейросети;
-- отдельно фиксировать факт реального пользовательского подтверждения.
+`SELF_CHECKED` → `PEER_REVIEWED` → `USER_VALIDATED` → `FIELD_PROVEN`
 
 ---
 
 ## Текущий этап
 
-Сейчас работа идёт только над `stage1`.
-
-`stage2`, корневой сценарий и более глубокий рефакторинг пока сознательно отложены.
+Оба stage полностью рабочие. Текущая работа — фиксация учебных комментариев и документации.
 
 Согласованный порядок:
 
-1. довести `stage1` до полностью рабочего состояния;
-2. зафиксировать это отдельными bugfix-коммитами;
-3. после этого перенести практики на `stage2` в новой bugfix-ветке;
-4. только потом идти к более крупным изменениям и отдельной feature-ветке с золотым образом.
+1. Stage 1 и Stage 2 полностью рабочие (token persistence, idempotency, orphan VM detection)
+2. Учебные комментарии расширены во всех скриптах
+3. Зафиксировать документацию и комментарии отдельным коммитом
+4. Merge в `main`
 
 ---
 
 ## Текущая ветка
 
-Текущая рабочая ветка:
-
-`bugfix/stage1-cluster-bootstrap`
-
----
-
-## Уже зафиксированные коммиты
-
-На текущей ветке уже есть такие коммиты над `develop`:
-
-1. `5259960` `bugfix/stage1-cluster-bootstrap: stabilize stage1 vm names and ports`
-2. `fc2d1fc` `bugfix/stage1-cluster-bootstrap: make stage1 common provisioning idempotent`
-3. `7b0d129` `bugfix/stage1-cluster-bootstrap: prioritize reliable cluster bootstrap`
-4. `08eb019` `bugfix/stage1-cluster-bootstrap: add stage1 post-bootstrap validation`
-5. `4ccdca8` `bugfix/stage1-cluster-bootstrap: clean stage1 destroy runtime state`
-6. `beb007f` `bugfix/stage1-cluster-bootstrap: refresh student docs and glossary`
-7. `b262f96` `bugfix/stage1-cluster-bootstrap: streamline stage1 learner entrypoint`
-8. `a784f07` `bugfix/stage1-cluster-bootstrap: make launch bat cmd-safe`
+`docs/educational-comments`
 
 ---
 
 ## Что уже работает в `stage1`
-
-Подтверждено на текущем кластере:
-
-- `k8s-master`, `k8s-worker1`, `k8s-worker2` подняты и находятся в `Ready`;
-- Calico работает на всех нодах;
-- smoke-тест `nginx` успешно разворачивается;
-- `nginx-smoke-check` завершается как `Complete`;
-- Dashboard доступен в браузере;
-- `run-post-bootstrap.ps1` экспортирует `kubeconfig` для Windows-хоста;
-- Windows `kubectl` может работать напрямую через `stage1\kubeconfig-stage1.yaml`.
-
-### Честный статус текущего результата
-
-Для текущего состояния `stage1` фиксируется такая карточка:
 
 ```text
 Maturity: VERIFIED
@@ -135,336 +74,141 @@ Verification: SELF_CHECKED
 Real-user validation: NO
 ```
 
-Расшифровка:
+Подтверждено:
 
-- `VERIFIED` — сценарий технически подтверждён ручными прогонами;
-- `HYBRID` — результат собран через сочетание нейросетевой помощи и человеческой ручной доработки;
-- `SELF_CHECKED` — основная верификация пока выполнена внутри команды сопровождения;
-- `Real-user validation: NO` — независимое пользовательское чек-ревью и массовая учебная практика пока ещё не зафиксированы.
+- 3 ноды (`k8s-master`, `k8s-worker1`, `k8s-worker2`) в `Ready`
+- Calico CNI работает на всех нодах
+- Smoke-тест `nginx-smoke` проходит успешно
+- Dashboard доступен по `https://localhost:30443`
+- Токен Dashboard сохраняется в `stage1/dashboard-token.txt`
+- `kubeconfig` экспортируется на хост, `kubectl` работает из Windows
+- **Идемпотентность**: повторный запуск `launch.bat` пропускает готовые фазы и показывает токен
+- **Orphan VM detection**: при старте проверяются «хвосты» от предыдущих запусков
 
 ---
 
-## Что дополнительно подтверждено вручную из Windows PowerShell
+## Что уже работает в `stage2`
 
-После подключения:
-
-```powershell
-$env:KUBECONFIG = "K:\repositories\git\ipr\crm\stage1\kubeconfig-stage1.yaml"
+```text
+Maturity: VERIFIED
+Origin: HYBRID
+Verification: SELF_CHECKED
+Real-user validation: NO
 ```
 
-штатно отрабатывают команды:
+Подтверждено:
 
-- `kubectl get ns`
-- `kubectl get nodes -o wide`
-- `kubectl get pods -A -o wide`
-- `kubectl get all -n smoke-tests -o wide`
-- `kubectl get deployment nginx-smoke -n smoke-tests`
-- `kubectl get pods -n smoke-tests -o wide`
-- `kubectl get svc -n smoke-tests`
-- `kubectl get job nginx-smoke-check -n smoke-tests`
-- `kubectl describe deployment nginx-smoke -n smoke-tests`
-- `kubectl describe svc nginx-smoke -n smoke-tests`
-- `kubectl get endpoints nginx-smoke -n smoke-tests`
-- `kubectl cluster-info`
-
-Это означает:
-
-- host-side `kubeconfig` для Windows реально рабочий;
-- smoke-проект подтверждён из Windows-терминала;
-- Dashboard и browser-проверка подтверждены;
-- `stage1` теперь можно проверять и через `vagrant ssh`, и через обычный `kubectl` на Windows-хосте.
+- Динамическое количество worker-нод (через `.env` или `proxy-launch.bat`)
+- SSH-ключи ed25519 вместо пароля
+- Токен Dashboard сохраняется в `stage2/dashboard-token.txt`
+- **Идемпотентность**: Фаза 0 проверяет готовность кластера и пропускает лишнее
+- **Ready marker**: `.vagrant/stage2-ready` с таймстампом
+- Дефолты: Ubuntu 24.04, CPU=2, RAM=2048 (согласованы с proxy-launch.bat)
 
 ---
 
-## Что именно изменено в `stage1`
+## Что изменено в `stage1` (полный список)
 
-### `stage1/Vagrantfile`
-
-Сделано:
-
-- исправлены пути на локальные `stage1/scripts/*`;
-- добавлен уникальный токен кластера для VirtualBox-имён;
-- добавлена отдельная группа VirtualBox;
-- добавлена проверка и фиксация пула host-портов заранее;
-- добавлены post-destroy trigger-ы для точечной очистки orphan-VM;
-- комментарии расширены в учебном стиле.
-
-### `stage1/scripts/common.sh`
-
-Сделано:
-
-- устранён повторный сбой `gpg --dearmor` при повторном `provision`;
-- добавлен `--yes` для безопасной перезаписи keyring без TTY-вопросов.
-
-### `stage1/scripts/master.sh`
-
-Сделано:
-
-- bootstrap сосредоточен на рабочем master и присоединении worker-нод;
-- второстепенные шаги выведены из критического пути.
-
-### `stage1/scripts/finalize-cluster.sh`
-
-Сделано:
-
-- вынесена отдельная post-join финализация сети;
-- добавлено ожидание регистрации всех нод;
-- Calico применяется только тогда, когда это действительно нужно;
-- добавлены явные ожидания для `Ready`-нод и Pod-ов Calico.
-
-### `stage1/scripts/run-post-bootstrap.ps1`
-
-Сделано:
-
-- добавлен host-side сценарий финализации после `vagrant up`;
-- порядок шагов жёстко закреплён:
-  1. проверка нод;
-  2. финализация сети и Calico;
-  3. smoke-тест;
-  4. ожидание успеха smoke-теста;
-  5. установка Dashboard;
-  6. экспорт `kubeconfig` для Windows.
-
-### `stage1/scripts/export-host-kubeconfig.ps1`
-
-Сделано:
-
-- добавлен экспорт host-side `kubeconfig` после post-bootstrap;
-- подготовлен доступ к API через `127.0.0.1:6443`.
-
-### `stage1/scripts/use-stage1-kubectl.ps1`
-
-Сделано:
-
-- добавлен helper для текущей PowerShell-сессии;
-- упрощено подключение `KUBECONFIG` из Windows.
-
-### `smoke-tests/nginx-smoke.yaml`
-
-Сделано:
-
-- добавлен простой повторяемый smoke-тест;
-- используются `Namespace`, `Deployment`, `Service` и `Job`;
-- `Job` проверяет Service по внутреннему DNS имени изнутри кластера;
-- манифест оформлен как учебный пример.
+| Файл | Что сделано |
+|------|-------------|
+| `Vagrantfile` | Уникальный cluster token, пул host-портов, orphan VM cleanup triggers, учебные комментарии |
+| `scripts/common.sh` | Идемпотентный gpg, `--yes` для перезаписи keyring |
+| `scripts/master.sh` | Calico через Tigera Operator, Dashboard отложен до post-bootstrap |
+| `scripts/worker.sh` | Ожидание join-command.sh, идемпотентность |
+| `scripts/finalize-cluster.sh` | Отдельная post-join финализация сети, ожидание нод, Calico, Ready-проверки |
+| `scripts/install-dashboard.sh` | Helm chart, **токен ВСЕГДА генерируется и сохраняется в `/vagrant/dashboard-token.txt`** |
+| `scripts/run-post-bootstrap.ps1` | **Фаза 0** (идемпотентность), 7 фаз, Show-DashboardToken, ready marker |
+| `scripts/export-host-kubeconfig.ps1` | Экспорт kubeconfig на хост (127.0.0.1:6443) |
+| `scripts/use-stage1-kubectl.ps1` | Helper для быстрой установки KUBECONFIG |
+| `scripts/cleanup-stage1-runtime.ps1` | Очистка артефактов после destroy (включая dashboard-token.txt) |
+| `scripts/cleanup-vbox-tail.ps1` | Точечная очистка orphan-VM |
+| `launch.bat` | **Проверка состояния кластера** перед запуском, **orphan VM detection**, показ токена |
 
 ---
 
-## Согласованная логика этапов `stage1`
+## Что изменено в `stage2` (полный список)
 
-Текущая учебная логика такая:
-
-1. поднять 3 ноды;
-2. выполнить `kubeadm init` на master;
-3. выполнить `kubeadm join` для worker-нод;
-4. настроить Pod-сеть и Calico;
-5. прогнать smoke-тест простого приложения;
-6. только после этого установить Dashboard;
-7. экспортировать `kubeconfig` для Windows-хоста;
-8. проверить кластер обычным `kubectl` из Windows.
-
----
-
-## Что ещё нужно сделать на текущем этапе
-
-### Фикс-коммиты
-
-Нужно:
-
-1. зафиксировать helper и runtime-правки `stage1` отдельным bugfix-коммитом;
-2. зафиксировать обновление учебной документации отдельными bugfix-коммитами;
-3. убедиться, что `stage1/kubeconfig-stage1.yaml` не попадает в git.
-
-### Подготовка к merge в `develop`
-
-Нужно:
-
-1. обновить `STATUS.md` финальным состоянием после коммитов;
-2. проверить рабочее дерево;
-3. выполнить merge в `develop` через `--no-ff`.
+| Файл | Что сделано |
+|------|-------------|
+| `Vagrantfile` | Динамическая конфигурация через `.env`, SSH-ключи, дефолты: Ubuntu 24.04, CPU=2, RAM=2048 |
+| `scripts/common.sh` | Параметризация через аргументы, SSH-key injection, `sed -i` без `.bak` |
+| `scripts/master.sh` | `--server-side --force-conflicts` для Calico, `sleep 180` после Tigera Operator, `--duration=24h` для токена |
+| `scripts/worker.sh` | Проверка `-s` (не пустой), улучшенная диагностика |
+| `scripts/finalize-cluster.sh` | Исправлен баг `grep -c` (убран дублированный вывод) |
+| `scripts/install-dashboard.sh` | **Токен ВСЕГДА генерируется и сохраняется в `/vagrant/dashboard-token.txt`** |
+| `scripts/run-post-bootstrap.ps1` | **Фаза 0** (идемпотентность), Show-DashboardToken, ready marker, Фаза 5b |
+| `scripts/export-host-kubeconfig.ps1` | Динамическое имя ВМ из `.env` вместо хардкода |
+| `scripts/use-stage2-kubectl.ps1` | `$ErrorActionPreference`, параметр `$ConfigPath`, `throw` при ошибке |
+| `proxy-launch.bat` | Показ токена после завершения, очистка артефактов при destroy |
 
 ---
 
-## Глобальные правила, которые уже надо помнить
+## Согласованная логика этапов
+
+```
+1. Поднять ноды (vagrant up)
+2. kubeadm init на master
+3. kubeadm join для worker-нод
+4. Настроить Pod-сеть (Calico)
+5. Прогнать smoke-тест
+6. Установить Dashboard
+7. Сгенерировать и сохранить токен
+8. Экспортировать kubeconfig для Windows
+9. Проверить кластер через kubectl из Windows
+```
+
+---
+
+## Критерий готовности
+
+Текущий этап завершён, когда:
+
+1. `stage1` поднимается с нуля через `launch.bat`
+2. `stage2` поднимается через `proxy-launch.bat`
+3. Master и worker-ноды переходят в `Ready`
+4. Calico стабильно работает
+5. Smoke-тест проходит
+6. Dashboard доступен, токен сохранён в файле
+7. Windows `kubectl` работает
+8. Повторный запуск пропускает готовые фазы и показывает токен
+9. Комментарии понятны школьнику
+
+---
+
+## Stage 2 — Дорожная карта
+
+| Этап | Название | Статус |
+|------|----------|--------|
+| 1 | SSH-ключи вместо пароля | ✅ Готово |
+| 2 | Параллельный provisioning | ✅ Готово |
+| 3 | Конфигурируемые параметры (.env) | ✅ Готово |
+| 4 | Учебные комментарии и документация | 🔄 In Progress |
+| 5 | Packer-билд золотого образа | ⏳ Backlog |
+| 6 | NSIS-wizard / Launcher GUI | ⏳ Backlog |
+| 7 | Linked Clones | ⏳ Backlog |
+
+---
+
+## Правила проекта
+
+### Git-flow
+
+- `main` → продакшн
+- `develop` → интеграция
+- `feature/*` → новая функциональность
+- `bugfix/*` → исправления
+- Не более 6 файлов в коммите
+- Сообщения коммитов на английском
+- Merge только через `--no-ff`
+- Никаких destructive операций без разрешения
+
+### PowerShell
+
+- Нельзя использовать `&&` в PowerShell 5
+- Вложенные кавычки в `vagrant ssh` упрощать
+- Сложные команды выносить в `.ps1`
 
 ### Язык
 
-Все ответы пользователю — на русском языке, кроме:
-
-- кода;
-- CLI-команд;
-- путей;
-- логов;
-- точных идентификаторов;
-- точных цитат.
-
-### Запрет на служебные названия
-
-Нельзя использовать названия ассистентов, моделей или нейросетей:
-
-- в названиях веток;
-- в описаниях;
-- в комментариях;
-- в документах;
-- в инструкциях;
-- в постоянной памяти.
-
-### Git-flow пользователя
-
-Обязательная схема:
-
-- `main`
-- `develop`
-- `feature/*`
-- `bugfix/*`
-- `hotfix/*`
-
-Дополнительно:
-
-- не более 6 файлов в коммите;
-- не более 20 коммитов на ветке;
-- минимум 3 коммита на ветке перед дальнейшим движением;
-- сообщения коммитов только на английском;
-- merge только через `--no-ff`;
-- никаких destructive git-операций без явного разрешения пользователя.
-
-### Правила PowerShell для этого проекта
-
-Нужно помнить и соблюдать:
-
-- host-side команды надо запускать из правильного каталога, для `stage1` это `stage1`;
-- в Windows PowerShell 5 нельзя использовать `&&`, лучше использовать отдельные команды;
-- вложенные кавычки в `vagrant ssh ... -c ...` надо упрощать;
-- для сложных host-side сценариев лучше выносить логику в `.ps1`;
-- при работе с `vagrant ssh` и PowerShell нужно заранее фиксировать `workdir`.
-
----
-
-## Что должен сделать следующий ассистент в первую очередь
-
-1. Прочитать этот `STATUS.md`.
-2. Проверить ветку, число коммитов и `git status`.
-3. Работать только над `stage1`, пока пользователь не скажет иначе.
-4. Не трогать `stage2` и корневой сценарий на текущем этапе.
-5. Не убирать учебные комментарии, а усиливать их.
-6. Завершить фикс-коммиты и подготовить merge в `develop`.
-
----
-
-## Критерий завершения текущего этапа
-
-Текущий этап можно считать завершённым только если одновременно выполнены все условия:
-
-1. `stage1` поднимается с нуля.
-2. Master и 2 worker переходят в `Ready`.
-3. Calico стабильно работает на всех нодах.
-4. Smoke-приложение успешно разворачивается и проходит проверку.
-5. Dashboard ставится в самом конце отдельным шагом.
-6. Windows `kubectl` работает через `stage1\kubeconfig-stage1.yaml`.
-7. Новые скрипты и шаги понятны школьнику по комментариям и пояснениям.
-
----
-
-## Stage 2 — Дорожная карта (новая архитектура)
-
-### Отличия Stage 2 от Stage 1
-
-| Аспект | Stage 1 | Stage 2 |
-|--------|---------|---------|
-| Аутентификация SSH | Логин/пароль `vagrant/vagrant` | SSH-ключи, генерируемые при `vagrant up` |
-| Запуск нод | Последовательный | Параллельный (до настройки мастера) |
-| Конфигурация ВМ | Фиксированная (2 worker) | Выбираемая пользователем (кол-во worker, ресурсы) |
-| Provisioning | Полная установка с нуля | Packer-образы + клонирование ВМ |
-| Установка ПО | В процессе provisioning | Предварительный Packer-билд золотого образа |
-| Интерфейс | CLI (Vagrantfile) | NSIS-wizard / Launcher с выбором параметров |
-
-### Требования к Stage 2
-
-#### 1. SSH-аутентификация
-
-- Ключи генерируются автоматически при первом `vagrant up`
-- Ключи сохраняются в `.vagrant/node-keys/<vm-name>.ed25519`
-- Паролевая аутентификация полностью отключена
-- Ключи добавляются в `authorized_keys` на этапе базовой настройки
-
-#### 2. Параллельный запуск нод
-
-- Все ноды (master + workers) запускаются параллельно
-- Provisioning базовой ОС идёт параллельно
-- Настройка Kubernetes начинается только после готовности master
-- Worker-ноды ожидают готовности master для join
-
-#### 3. Конфигурируемость через wizard/launcher
-
-Пользователь выбирает:
-
-- Количество worker-нод (1–N, по умолчанию 2)
-- Ресурсы на ноду:
-  - CPU (ядра)
-  - RAM (GB)
-  - Disk (GB)
-- Путь установки Vagrant-проекта
-- Имя кластера (для уникальности VirtualBox-VM)
-
-#### 4. Packer-билд золотого образа
-
-Отдельный этап дорожной карты:
-
-1. **Packer template** — базовый образ Ubuntu 24.04 с предустановленным:
-   - Docker/containerd
-   - kubeadm, kubelet, kubectl (замороженные версии)
-   - CNI (Calico/Flannel)
-   - Системные настройки (sysctl, swap off, модули ядра)
-
-2. **Vagrant box из Packer-образа** — локальный box для VirtualBox
-
-3. **Клонирование ВМ** — быстрое развёртывание из snapshot/template
-
-#### 5. Дорожная карта этапов
-
-```
-Этап 1: SSH-ключи вместо пароля
-  - Генерация ключей при vagrant up
-  - Добавление в authorized_keys на всех нодах
-  - Отключение парольной аутентификации
-
-Этап 2: Параллельный provisioning
-  - Рефакторинг Vagrantfile (parallel: true)
-  - Выделение базовой настройки в common.sh
-  - Синхронизация через ready-флаги
-
-Этап 3: Конфигурируемые параметры
-  - .env файл с переменными (WORKER_COUNT, CPU, RAM, DISK)
-  - Валидация ресурсов хоста перед запуском
-  - Динамическая генерация имён ВМ
-
-Этап 4: NSIS-wizard / Launcher
-  - GUI для выбора параметров
-  - Генерация .env по выбору пользователя
-  - Запуск vagrant up с нужными параметрами
-
-Этап 5: Packer-билд
-  - Packerfile для золотого образа
-  - Vagrant box из Packer-артефакта
-  - Snapshot для быстрого клонирования
-
-Этап 6: Клонирование ВМ
-  - Linked clones для экономии места
-  - Snapshot management
-  - Быстрый destroy/recreate
-```
-
-### Архитектурные принципы Stage 2
-
-- **Clean Architecture**: разделение concern (provisioning, конфигурация, оркестрация)
-- **Идемпотентность**: все скрипты должны безопасно выполняться повторно
-- **Валидация**: pre-flight проверка ресурсов хоста, портов, DNS
-- **Обучаемость**: подробные комментарии для школьников
-- **Надёжность**: обработка ошибок, retry-логика, явные ожидания
-
-### Технические ограничения
-
-- Платформа: Windows 11 Home + VirtualBox 7.x + Vagrant 2.4+
-- Min SDK: Ubuntu 24.04, Kubernetes 1.34+
-- Скрипты: bash (Linux VM) + PowerShell (Windows host)
-- Не коммитить: `.vagrant/`, `.env`, `*.ed25519`, `join-command.sh`
+Все ответы — на русском языке.
+Исключение: код, CLI-команды, пути, логи, идентификаторы.
