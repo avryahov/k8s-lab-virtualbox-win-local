@@ -255,12 +255,36 @@ Function DepsPageCreate
   ${If} $2 == "0"
     ${NSD_CreateLabel} 215 48 155 14 "$(STR_DEPS_OK)"
   ${Else}
-    ; Пробуем стандартный путь
+    ; Пробуем стандартный путь Program Files
     ${If} ${FileExists} "$PROGRAMFILES\Oracle\VirtualBox\VBoxManage.exe"
       ${NSD_CreateLabel} 215 48 155 14 "$(STR_DEPS_OK)"
       StrCpy $2 "0"
+    ${ElseIf} ${FileExists} "$PROGRAMFILES64\Oracle\VirtualBox\VBoxManage.exe"
+      ${NSD_CreateLabel} 215 48 155 14 "$(STR_DEPS_OK)"
+      StrCpy $2 "0"
     ${Else}
-      ${NSD_CreateLabel} 215 48 155 14 "$(STR_DEPS_MISSING)"
+      ; Пробуем найти через реестр
+      ReadRegStr $4 HKLM "SOFTWARE\Oracle\VirtualBox" "InstallDir"
+      ${If} $4 != ""
+        ${If} ${FileExists} "$4\VBoxManage.exe"
+          ${NSD_CreateLabel} 215 48 155 14 "$(STR_DEPS_OK)"
+          StrCpy $2 "0"
+        ${Else}
+          ${NSD_CreateLabel} 215 48 155 14 "$(STR_DEPS_MISSING)"
+        ${EndIf}
+      ${Else}
+        ReadRegStr $4 HKLM "SOFTWARE\WOW6432Node\Oracle\VirtualBox" "InstallDir"
+        ${If} $4 != ""
+          ${If} ${FileExists} "$4\VBoxManage.exe"
+            ${NSD_CreateLabel} 215 48 155 14 "$(STR_DEPS_OK)"
+            StrCpy $2 "0"
+          ${Else}
+            ${NSD_CreateLabel} 215 48 155 14 "$(STR_DEPS_MISSING)"
+          ${EndIf}
+        ${Else}
+          ${NSD_CreateLabel} 215 48 155 14 "$(STR_DEPS_MISSING)"
+        ${EndIf}
+      ${EndIf}
     ${EndIf}
   ${EndIf}
 
@@ -286,10 +310,22 @@ Function DepsPageLeave
   Pop $1
   ${If} $0 != "0"
     ${If} ${FileExists} "$PROGRAMFILES\Oracle\VirtualBox\VBoxManage.exe"
-      ; OK — найден в стандартном месте
+      ; OK — найден в Program Files
+    ${ElseIf} ${FileExists} "$PROGRAMFILES64\Oracle\VirtualBox\VBoxManage.exe"
+      ; OK — найден в Program Files (64-bit)
     ${Else}
-      MessageBox MB_YESNO|MB_ICONEXCLAMATION "$(STR_DEPS_WARN_VBOX)" IDYES +2
-      Abort
+      ReadRegStr $2 HKLM "SOFTWARE\Oracle\VirtualBox" "InstallDir"
+      ${If} $2 != ""
+        ${If} ${FileExists} "$2\VBoxManage.exe"
+          ; OK — найден через реестр
+        ${Else}
+          MessageBox MB_YESNO|MB_ICONEXCLAMATION "$(STR_DEPS_WARN_VBOX)" IDYES +2
+          Abort
+        ${EndIf}
+      ${Else}
+        MessageBox MB_YESNO|MB_ICONEXCLAMATION "$(STR_DEPS_WARN_VBOX)" IDYES +2
+        Abort
+      ${EndIf}
     ${EndIf}
   ${EndIf}
 FunctionEnd
