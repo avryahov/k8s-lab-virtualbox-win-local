@@ -30,11 +30,15 @@
 $ErrorActionPreference = "Stop"
 $stage2Dir = Split-Path -Parent $PSScriptRoot
 
-# Загружаем .env файл для получения порта Dashboard
+# Загружаем .env файл для получения имён ВМ и порта Dashboard
 $envFile = Join-Path $stage2Dir ".env"
+$MASTER_VM_NAME = "lab-k8s-master"
 $MASTER_DASHBOARD_PORT = "30443"
 if (Test-Path $envFile) {
     Get-Content $envFile | ForEach-Object {
+        if ($_ -match '^\s*MASTER_VM_NAME=(.*)\s*$') {
+            $MASTER_VM_NAME = $matches[1].Trim().Trim('"').Trim("'")
+        }
         if ($_ -match '^\s*MASTER_DASHBOARD_PORT=(.*)\s*$') {
             $MASTER_DASHBOARD_PORT = $matches[1].Trim().Trim('"').Trim("'")
         }
@@ -48,8 +52,8 @@ if ([string]::IsNullOrWhiteSpace($OutputPath)) {
 Push-Location $stage2Dir
 
 try {
-    Write-Host ">>> [host-kubeconfig] Exporting admin.conf from master..."
-    $rawConfig = & vagrant ssh lab-k8s-master -c "sudo cat /etc/kubernetes/admin.conf"
+    Write-Host ">>> [host-kubeconfig] Exporting admin.conf from $MASTER_VM_NAME..."
+    $rawConfig = & vagrant ssh $MASTER_VM_NAME -c "sudo cat /etc/kubernetes/admin.conf"
 
     if (-not $rawConfig) {
         throw "Master returned empty kubeconfig content."

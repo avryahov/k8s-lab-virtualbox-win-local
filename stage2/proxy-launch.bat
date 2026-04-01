@@ -98,6 +98,9 @@ if "%_ACTION%"=="destroy" (
   if /i "!_CONFIRM!"=="y" (
     vagrant destroy -f
     powershell.exe -Command "Remove-Item -Recurse -Force .vagrant\node-keys -ErrorAction SilentlyContinue"
+    powershell.exe -Command "Remove-Item -Force dashboard-token.txt -ErrorAction SilentlyContinue"
+    powershell.exe -Command "Remove-Item -Force kubeconfig-stage2.yaml -ErrorAction SilentlyContinue"
+    powershell.exe -Command "Remove-Item -Force .vagrant\stage2-ready -ErrorAction SilentlyContinue"
   )
   goto :eof
 )
@@ -197,6 +200,17 @@ if errorlevel 1 (
 )
 
 echo.
+echo ════════════════════════════════════════
+echo  Stage 2 кластер готов!
+echo ════════════════════════════════════════
+echo.
+if exist "dashboard-token.txt" (
+  echo  Токен Dashboard (из dashboard-token.txt):
+  type "dashboard-token.txt"
+  echo.
+)
+echo  Dashboard: https://localhost:30443
+echo ════════════════════════════════════════
 goto :eof
 
 :show_help

@@ -65,7 +65,7 @@ done
 echo ">>> [ШАГ 2] Ожидание готовности нод (Ready)..."
 
 for ((attempt=1; attempt<=NODE_READY_RETRIES; attempt++)); do
-    ready_count=$(kubectl get nodes --no-headers -o jsonpath='{range .items[*]}{.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' 2>/dev/null | grep -c "True" || echo "0")
+    ready_count=$(kubectl get nodes --no-headers -o jsonpath='{range .items[*]}{.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' 2>/dev/null | grep -c "True" || true)
     
     if [ "$ready_count" -eq "$EXPECTED_NODE_COUNT" ]; then
         echo "  Все ноды готовы: ${ready_count}/${EXPECTED_NODE_COUNT}"

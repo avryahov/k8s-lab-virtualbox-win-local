@@ -168,12 +168,12 @@ cleanup_key_script = File.join(workspace_dir, "scripts", "cleanup-node-key.ps1")
 # .to_i — конвертирует строку в число (Ruby всегда читает строки из файлов).
 
 cluster_prefix = env.fetch("CLUSTER_PREFIX", "lab-k8s")
-box_name = env.fetch("VM_BOX", "bento/ubuntu-22.04")
+box_name = env.fetch("VM_BOX", "bento/ubuntu-24.04")
 worker_count = env.fetch("WORKER_COUNT", "2").to_i
 worker_count = 1 if worker_count < 1  # Минимум 1 worker, даже если указано 0
 
-common_cpus = env.fetch("VM_CPUS", "4").to_i
-common_memory = env.fetch("VM_MEMORY_MB", "8192").to_i
+common_cpus = env.fetch("VM_CPUS", "2").to_i
+common_memory = env.fetch("VM_MEMORY_MB", "2048").to_i
 boot_timeout = env.fetch("VM_BOOT_TIMEOUT", "600").to_i
 
 private_network_prefix = env.fetch("PRIVATE_NETWORK_PREFIX", "192.168.56")
