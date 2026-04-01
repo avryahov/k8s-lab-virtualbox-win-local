@@ -111,7 +111,6 @@ ensure_helm() {
 #   4. Перевести сервис в NodePort с нужным портом
 #   5. Создать admin-user ServiceAccount и ClusterRoleBinding
 #   6. Подождать, пока все deployment станут Available
-#   7. Вывести токен и URL для входа
 install_dashboard() {
   local dashboard_proxy_service
   local dashboard_chart_archive
@@ -236,21 +235,53 @@ EOF
   echo ">>> [dashboard] Ждём доступность всех deployment Dashboard..."
   kubectl wait --for=condition=Available deployment --all -n kubernetes-dashboard --timeout="${HELM_WAIT_TIMEOUT}"
   echo "  Все deployment Dashboard доступны"
+}
 
-  # -----------------------------------------------------------------------
-  # Этап 7: Вывод токена и URL
-  # -----------------------------------------------------------------------
+# generate_and_save_token — генерация токена и сохранение в файл.
+#
+# ЗАЧЕМ ОТДЕЛЬНАЯ ФУНКЦИЯ:
+#   Токен должен генерироваться ВСЕГДА, даже если Dashboard уже установлен
+#   и функция install_dashboard() была пропущена. Это решает проблему
+#   повторного запуска: ученик всегда получает свежий токен.
+#
+# КУДА СОХРАНЯЕМ:
+#   1. /vagrant/dashboard-token.txt — общая папка, видна на хосте Windows
+#      как stage1/dashboard-token.txt
+#   2. В stdout — для вывода в консоль provisioning
+#
+# ПОЧЕМУ /vagrant/:
+#   /vagrant/ — это синхронизированная папка между хостом и ВМ.
+#   Файл, записанный здесь, сразу доступен на Windows-хосте.
+generate_and_save_token() {
+  local token
+  local token_file="/vagrant/dashboard-token.txt"
+
+  echo ">>> [dashboard] Генерация токена admin-user..."
+
   # create token — создаёт временный токен для аутентификации.
   # --duration=24h — токен действителен 24 часа.
   # После истечения нужно сгенерировать новый.
-  #
-  # ТОКЕН — это длинная строка, которую нужно вставить в поле
-  # «Enter token» на странице входа в Dashboard.
+  token="$(kubectl -n kubernetes-dashboard create token admin-user --duration=24h)"
+
+  if [ -z "${token}" ]; then
+    echo "ОШИБКА: не удалось сгенерировать токен." >&2
+    exit 1
+  fi
+
+  # Сохраняем токен в файл на общей папке.
+  # Это позволяет:
+  #   1. Получить токен без запуска provisioning повторно
+  #   2. Прочитать токен из Windows (stage1/dashboard-token.txt)
+  #   3. Автоматически показать токен в финальном сообщении launch.bat
+  echo "${token}" > "${token_file}"
+  chmod 644 "${token_file}"
+
+  echo "  Токен сохранён в /vagrant/dashboard-token.txt"
   echo ""
   echo "========================================================"
   echo "  ТОКЕН ДЛЯ ВХОДА В DASHBOARD:"
   echo "========================================================"
-  kubectl -n kubernetes-dashboard create token admin-user --duration=24h
+  echo "${token}"
   echo "========================================================"
   echo "  URL: https://localhost:${DASHBOARD_NODEPORT}"
   echo "========================================================"
@@ -260,13 +291,24 @@ EOF
   echo "  2. Подтверди переход через предупреждение о самоподписанном сертификате"
   echo "  3. Выбери 'Token' и вставь токен выше"
   echo "  4. Нажми 'Sign in'"
+  echo ""
+  echo "  Токен также доступен на хосте: stage1/dashboard-token.txt"
 }
 
 # =============================================================================
 # ОСНОВНОЙ ПОТОК ВЫПОЛНЕНИЯ
 # =============================================================================
+# Порядок критически важен:
+#   1. Убедиться, что Helm установлен (нужен для install_dashboard)
+#   2. Установить Dashboard (если ещё не установлен)
+#   3. ВСЕГДА сгенерировать и сохранить токен
+#
+# generate_and_save_token вызывается ВСЕГДА — даже если Dashboard уже
+# установлен и install_dashboard() была пропущена. Это решает проблему
+# повторного запуска: ученик всегда получает свежий токен.
 ensure_helm
 install_dashboard
+generate_and_save_token
 
 echo ""
 echo ">>> [install-dashboard.sh] Готово! Dashboard доступен по адресу:"
