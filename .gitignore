@@ -7,6 +7,7 @@
 # Generated during provisioning by master.sh — recreated on every vagrant up
 join-command.sh
 stage1/kubeconfig-stage1.yaml
+stage1/dashboard-token.txt
 
 # Compiled NSIS installer binary — build artifact, not source
 stage2/installer/k8s-lab-setup.exe

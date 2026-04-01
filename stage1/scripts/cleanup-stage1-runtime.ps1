@@ -77,8 +77,11 @@ function Remove-Stage1RuntimeArtifacts {
     $vagrantDir = Join-Path $WorkspaceDir ".vagrant"
     $runtimePaths = @(
         (Join-Path $WorkspaceDir "join-command.sh"),
+        (Join-Path $WorkspaceDir "dashboard-token.txt"),
+        (Join-Path $WorkspaceDir "kubeconfig-stage1.yaml"),
         (Join-Path $vagrantDir "stage1-cluster-token"),
         (Join-Path $vagrantDir "stage1-host-port-pool.json"),
+        (Join-Path $vagrantDir "stage1-ready"),
         (Join-Path $vagrantDir "machines"),
         (Join-Path $vagrantDir "rgloader")
     )
