@@ -8,6 +8,8 @@
 join-command.sh
 stage1/kubeconfig-stage1.yaml
 stage1/dashboard-token.txt
+stage2/kubeconfig-stage2.yaml
+stage2/dashboard-token.txt
 
 # Compiled NSIS installer binary — build artifact, not source
 stage2/installer/k8s-lab-setup.exe
