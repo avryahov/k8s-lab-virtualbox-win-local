@@ -206,36 +206,15 @@ if ! kubectl --kubeconfig=/etc/kubernetes/admin.conf \
      get namespace calico-system > /dev/null 2>&1; then
 
   echo ">>> [ШАГ 4a] Установка Tigera Operator..."
-  # Tigera Operator — первый компонент Calico.
-  # Он создаёт CRD (Custom Resource Definitions) и разворачивает
-  # контроллер, который будет управлять Calico Installation.
-  kubectl apply -f \
+  kubectl apply --server-side --force-conflicts -f \
     "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/tigera-operator.yaml" \
     --kubeconfig=/etc/kubernetes/admin.conf
   echo "  Tigera Operator применён"
 
-  # Installation CRD — описывает желаемую конфигурацию Calico.
-  # Tigera Operator читает этот объект и разворачивает нужные компоненты.
-  #
-  # ПАРАМЕТРЫ:
-  #   bgp: Disabled — отключаем BGP (нужен только в больших production-кластерах
-  #     с десятками нод и внешней маршрутизацией).
-  #
-  #   blockSize: 26 — каждой ноде выделяется /26 = 64 IP для Pod-ов.
-  #     /26 = 2^(32-26) = 64 адреса. Этого достаточно для большинства сценариев.
-  #
-  #   cidr: должен совпадать с --pod-network-cidr в kubeadm init!
-  #     Если не совпадёт — Pod-ы не получат IP-адреса.
-  #
-  #   encapsulation: VXLANCrossSubnet — VXLAN-туннелирование только между
-  #     разными подсетями. Если ноды в одной подсети — трафик идёт напрямую.
-  #
-  #   natOutgoing: Enabled — маскарадинг исходящего трафика.
-  #     Pod-ы могут выходить в интернет (например, скачивать образы).
-  #
-  #   nodeSelector: all() — применить ко всем нодам кластера.
+  sleep 180
+
   echo ">>> [ШАГ 4b] Настройка Calico Installation..."
-  kubectl apply -f - --kubeconfig=/etc/kubernetes/admin.conf <<EOF
+  kubectl apply --server-side --force-conflicts -f - --kubeconfig=/etc/kubernetes/admin.conf <<EOF
 apiVersion: operator.tigera.io/v1
 kind: Installation
 metadata:
