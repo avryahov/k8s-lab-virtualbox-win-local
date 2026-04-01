@@ -69,6 +69,9 @@ Var WorkerCpu
 Var WorkerRam
 Var WorkerHdd
 
+; Smoke-тест
+Var RunSmokeTest
+
 ; Дескрипторы элементов диалогов
 Var hDialog
 Var hDepsDialog
@@ -93,6 +96,9 @@ Var hWorkerCountField
 Var hWorkerCpuField
 Var hWorkerRamField
 Var hWorkerHddField
+
+; Smoke
+Var hSmokeCheckbox
 
 ; Summary
 ; (no extra handles needed)
@@ -120,13 +126,16 @@ Page custom NetworkPageCreate NetworkPageLeave
 ; Страница 6: Настройка Worker-нод
 Page custom WorkerPageCreate WorkerPageLeave
 
-; Страница 7: Сводка настроек
+; Страница 7: Smoke-тест (опционально)
+Page custom SmokePageCreate SmokePageLeave
+
+; Страница 8: Сводка настроек
 Page custom SummaryPageCreate SummaryPageLeave
 
-; Страница 8: Прогресс установки
+; Страница 9: Прогресс установки
 !insertmacro MUI_PAGE_INSTFILES
 
-; Страница 9: Финиш
+; Страница 10: Финиш
 Page custom FinishPageCreate
 
 ; Деинсталлятор
@@ -519,7 +528,38 @@ Function WorkerPageLeave
   Abort
 FunctionEnd
 
-; === 13. СТРАНИЦА: СВОДКА НАСТРОЕК ===========================================
+; === 13. СТРАНИЦА: SMOKE-ТЕСТ ================================================
+
+Function SmokePageCreate
+  !insertmacro MUI_HEADER_TEXT "$(STR_SMOKE_TITLE)" "$(STR_SMOKE_SUBTITLE)"
+
+  nsDialogs::Create 1018
+  Pop $hDialog
+  ${If} $hDialog == error
+    Abort
+  ${EndIf}
+
+  ${NSD_CreateCheckbox} 10 10 370 20 "$(STR_SMOKE_RUN)"
+  Pop $hSmokeCheckbox
+  ${If} $RunSmokeTest == ""
+    StrCpy $RunSmokeTest "1"
+  ${EndIf}
+  ${If} $RunSmokeTest == "1"
+    ${NSD_Check} $hSmokeCheckbox
+  ${Else}
+    ${NSD_Uncheck} $hSmokeCheckbox
+  ${EndIf}
+
+  ${NSD_CreateLabel} 10 40 370 50 "$(STR_SMOKE_DESC)"
+
+  nsDialogs::Show
+FunctionEnd
+
+Function SmokePageLeave
+  ${NSD_GetState} $hSmokeCheckbox $RunSmokeTest
+FunctionEnd
+
+; === 14. СТРАНИЦА: СВОДКА НАСТРОЕК ===========================================
 
 Function SummaryPageCreate
   !insertmacro MUI_HEADER_TEXT "$(STR_SUMMARY_TITLE)" "$(STR_SUMMARY_SUBTITLE)"
@@ -552,7 +592,14 @@ Function SummaryPageCreate
   ${NSD_CreateLabel} 10 144 160 14 "$(STR_SUMMARY_DIR)"
   ${NSD_CreateLabel} 175 144 195 14 "$INSTDIR"
 
-  ${NSD_CreateLabel} 10 172 370 20 "$(STR_SUMMARY_NOTE)"
+  ${NSD_CreateLabel} 10 161 160 14 "$(STR_SUMMARY_SMOKE)"
+  ${If} $RunSmokeTest == "1"
+    ${NSD_CreateLabel} 175 161 195 14 "$(STR_SMOKE_YES)"
+  ${Else}
+    ${NSD_CreateLabel} 175 161 195 14 "$(STR_SMOKE_NO)"
+  ${EndIf}
+
+  ${NSD_CreateLabel} 10 189 370 20 "$(STR_SUMMARY_NOTE)"
 
   nsDialogs::Show
 FunctionEnd
@@ -595,9 +642,8 @@ FunctionEnd
 Section "Копирование файлов" SecCopyFiles
   SetOutPath "$INSTDIR"
 
-  File "..\..\.env.example"
   File "..\..\.gitignore"
-  File "..\..\Vagrantfile"
+  File "..\..\stage2\Vagrantfile"
   CreateDirectory "$INSTDIR\scripts"
   File /oname=scripts\common.sh "..\..\stage2\scripts\common.sh"
   File /oname=scripts\master.sh "..\..\stage2\scripts\master.sh"
@@ -606,6 +652,9 @@ Section "Копирование файлов" SecCopyFiles
   File /oname=scripts\install-dashboard.sh "..\..\stage2\scripts\install-dashboard.sh"
   File /oname=scripts\generate-node-key.ps1 "..\..\stage2\scripts\generate-node-key.ps1"
   File /oname=scripts\cleanup-node-key.ps1  "..\..\stage2\scripts\cleanup-node-key.ps1"
+  File /oname=scripts\run-post-bootstrap.ps1 "..\..\stage2\scripts\run-post-bootstrap.ps1"
+  File /oname=scripts\export-host-kubeconfig.ps1 "..\..\stage2\scripts\export-host-kubeconfig.ps1"
+  File /oname=scripts\use-stage2-kubectl.ps1 "..\..\stage2\scripts\use-stage2-kubectl.ps1"
 
   DetailPrint "$(STR_INSTALL_COPY)"
 SectionEnd
@@ -711,7 +760,6 @@ Section "Uninstall"
   RMDir /r "$INSTDIR\.vagrant"
   RMDir /r "$INSTDIR\scripts"
   Delete "$INSTDIR\.env"
-  Delete "$INSTDIR\.env.example"
   Delete "$INSTDIR\.gitignore"
   Delete "$INSTDIR\Vagrantfile"
   Delete "$INSTDIR\dashboard-token.txt"
